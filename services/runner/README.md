@@ -20,4 +20,4 @@ services/runner/run.sh
 
 The wrapper sets `PLAYWRIGHT_BROWSERS_PATH` to the browser directory inside `.venv`, so the runner does not use a system Python, system site packages, or a user-level Playwright browser cache. To pass runner arguments, append them to the wrapper, for example `services/runner/run.sh --headed`.
 
-The runner reads `contracts/selectors.json`, uses the local portal URL by default, and prints `{"status": "Approved", "inspector": "Davis"}` on success. Its workflow latency is reported on stderr. When a selector fails, it exits 1 and writes `services/runner/artifacts/failure_latest.png` and `services/runner/artifacts/failure_payload.json`.
+The runner reads `contracts/selectors.json`, uses the local portal URL by default, and prints `{"status": "Approved", "inspector": "Davis"}` on success. It caps each navigation and selector step at two seconds, so selector drift reaches recovery quickly. Workflow latency is reported on stderr. When a selector fails, it exits 1 and writes `services/runner/artifacts/failure_latest.png` and `services/runner/artifacts/failure_payload.json`.

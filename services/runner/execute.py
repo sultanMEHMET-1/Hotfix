@@ -16,8 +16,7 @@ from typing import Any
 from urllib.parse import urlsplit
 
 
-ACTION_TIMEOUT_MS = 1_000
-NAVIGATION_TIMEOUT_MS = 5_000
+PER_STEP_TIMEOUT_MS = 2_000
 DOM_SNIPPET_LIMIT = 4_000
 DEFAULT_PERMIT_ID = "PERMIT-2026-0042"
 DEFAULT_APPLICANT_NAME = "Davis Municipal Works"
@@ -112,8 +111,8 @@ def execute_workflow(
     applicant_selector = _selector(fields, "input_applicant_name")
     submit_selector = _selector(fields, "submit_button")
     status_selector = _selector(fields, "status_badge")
-    page.set_default_timeout(ACTION_TIMEOUT_MS)
-    page.set_default_navigation_timeout(NAVIGATION_TIMEOUT_MS)
+    page.set_default_timeout(PER_STEP_TIMEOUT_MS)
+    page.set_default_navigation_timeout(PER_STEP_TIMEOUT_MS)
 
     steps = (
         ("navigation", target_url, lambda: page.goto(target_url, wait_until="domcontentloaded")),
@@ -133,7 +132,7 @@ def execute_workflow(
 
     try:
         status_badge = page.locator(status_selector)
-        status_badge.wait_for(state="visible", timeout=ACTION_TIMEOUT_MS)
+        status_badge.wait_for(state="visible", timeout=PER_STEP_TIMEOUT_MS)
         status = status_badge.get_attribute("data-status") or status_badge.inner_text().strip()
         inspector = status_badge.get_attribute("data-inspector")
         if not status or not inspector:

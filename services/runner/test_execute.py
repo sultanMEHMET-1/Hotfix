@@ -5,6 +5,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 from execute import (
+    PER_STEP_TIMEOUT_MS,
     WorkflowFailure,
     _trim_dom,
     _validate_failure_payload,
@@ -27,6 +28,9 @@ class FakePage:
 
 
 class RunnerContractTests(unittest.TestCase):
+    def test_per_step_timeout_is_two_seconds(self):
+        self.assertEqual(PER_STEP_TIMEOUT_MS, 2_000)
+
     def test_selector_map_matches_shared_contract(self):
         selector_map = load_selector_map(REPOSITORY_ROOT / "contracts" / "selectors.json")
         self.assertEqual(selector_map["fields"]["submit_button"], "#submit-btn")
