@@ -1,0 +1,17 @@
+<!doctype html>
+<html lang="en">
+<head><title>Local record lookup</title></head>
+<body>
+  <h1>Record lookup</h1>
+  <label for="reference-v2">Record reference</label>
+  <input id="reference-v2" data-testid="lookup-reference" aria-label="Record reference">
+  <button id="lookup-v2" data-action="lookup" onclick="lookup()">Look up record</button>
+  <output data-result="lookup" role="status">Awaiting lookup</output>
+  <script>
+    function lookup() {
+      const record_id = document.querySelector('input').value;
+      document.querySelector('output').textContent = JSON.stringify({record_id, status: 'found'});
+    }
+  </script>
+</body>
+</html>

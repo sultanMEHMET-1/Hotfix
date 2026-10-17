@@ -1,0 +1,142 @@
+{
+  "history": [
+    {
+      "model_output": {
+        "action": [
+          {
+            "navigate": {
+              "url": "http://127.0.0.1:51700/",
+              "new_tab": false
+            }
+          }
+        ]
+      },
+      "result": [
+        {
+          "is_done": false,
+          "extracted_content": "\ud83d\udd17 Navigated to http://127.0.0.1:51700/"
+        }
+      ],
+      "state": {
+        "interacted_element": [
+          null
+        ]
+      }
+    },
+    {
+      "model_output": {
+        "action": [
+          {
+            "input": {
+              "index": 2,
+              "text": "probe-f7f74223",
+              "clear": true
+            }
+          }
+        ]
+      },
+      "result": [
+        {
+          "is_done": false,
+          "extracted_content": "Typed 'probe-f7f74223'"
+        }
+      ],
+      "state": {
+        "interacted_element": [
+          {
+            "node_id": 32,
+            "backend_node_id": 2,
+            "frame_id": null,
+            "node_type": 1,
+            "node_value": "",
+            "node_name": "INPUT",
+            "attributes": {
+              "id": "reference-v2",
+              "data-testid": "lookup-reference",
+              "aria-label": "Record reference"
+            },
+            "x_path": "html/body/input",
+            "element_hash": 250430329613200619,
+            "stable_hash": 16391331394109058276,
+            "bounds": {
+              "x": 121.703125,
+              "y": 79.875,
+              "width": 153.0,
+              "height": 21.0
+            },
+            "ax_name": "Record reference"
+          }
+        ]
+      }
+    },
+    {
+      "model_output": {
+        "action": [
+          {
+            "click": {
+              "index": 3
+            }
+          }
+        ]
+      },
+      "result": [
+        {
+          "is_done": false,
+          "extracted_content": "Clicked button \"Look up record\" id=lookup-v2"
+        }
+      ],
+      "state": {
+        "interacted_element": [
+          {
+            "node_id": 58,
+            "backend_node_id": 3,
+            "frame_id": null,
+            "node_type": 1,
+            "node_value": "",
+            "node_name": "BUTTON",
+            "attributes": {
+              "id": "lookup-v2",
+              "data-action": "lookup",
+              "onclick": "document.querySelector('[data-result]').textContent='Found: '+document.querySelector('input').value"
+            },
+            "x_path": "html/body/button[1]",
+            "element_hash": 2648741285182874420,
+            "stable_hash": 2648741285182874420,
+            "bounds": {
+              "x": 278.703125,
+              "y": 79.875,
+              "width": 104.9375,
+              "height": 21.0
+            },
+            "ax_name": "Look up record"
+          }
+        ]
+      }
+    },
+    {
+      "model_output": {
+        "action": [
+          {
+            "done": {
+              "text": "Local probe actions completed",
+              "success": true,
+              "files_to_display": []
+            }
+          }
+        ]
+      },
+      "result": [
+        {
+          "is_done": true,
+          "success": true,
+          "extracted_content": "Local probe actions completed"
+        }
+      ],
+      "state": {
+        "interacted_element": [
+          null
+        ]
+      }
+    }
+  ]
+}

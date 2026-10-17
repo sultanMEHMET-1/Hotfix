@@ -1,0 +1,6 @@
+browser-use==0.13.11
+fastapi==0.143.3
+uvicorn==0.54.0
+sentry-sdk[google-genai]==2.72.0
+pydantic==2.13.5
+jsonschema==4.26.0
