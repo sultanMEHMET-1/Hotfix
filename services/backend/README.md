@@ -5,6 +5,14 @@ and optional canary, and rolls back on any verification failure. Review M1
 before continuing to multi-field recovery (M2) or shared recovery tasks and
 heal-record responses (M3).
 
+## Review and agent handoff
+
+Start with [AGENTS.md](AGENTS.md) for agent operating instructions and
+[HANDOFF.md](HANDOFF.md) for the code map, invariants, test evidence, and known
+gaps. The handoff distinguishes implemented M1 behavior from accepted M2/M3
+requirements. Reviewers should verify those boundaries before approving more
+implementation.
+
 ## Run
 
 From the repository root, with Python 3.12 and `uv` available:
