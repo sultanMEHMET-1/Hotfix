@@ -1,8 +1,7 @@
 /**
  * Shared API types for the Mender contracts.
  *
- * Mirrors contracts/api_types.py, contracts/selectors.schema.json, and
- * contracts/failure_payload.schema.json. The dashboard consumes these
+ * Mirrors contracts/api_types.py and the JSON schemas. The dashboard consumes these
  * interfaces and must not redefine them.
  */
 
@@ -37,6 +36,35 @@ export interface SelectorDiff {
 
 export type WorkflowExecutionStatus = "success" | "healed" | "failed";
 
+/** Stable failure code and a human-readable explanation. */
+export interface RecoveryError {
+  code: string;
+  message: string;
+}
+
+/** Grounding evidence. History and action indices are zero-based. */
+export interface HealEvidence {
+  action_type: string;
+  history_step: number;
+  action_index: number;
+  node_name: string;
+  attributes: Record<string, string>;
+  reasoning: string;
+  accessible_name?: string | null;
+  xpath?: string | null;
+}
+
+/** Final disposition, never a claim that a provisional patch is committed. */
+export interface HealRecord {
+  field: string;
+  diff: SelectorDiff;
+  evidence: HealEvidence;
+  verification_outcome: "committed" | "rolled_back" | "rejected";
+  version_before: number;
+  version_after?: number | null;
+  rollback_version?: number | null;
+}
+
 /** Result returned after a workflow run, including an optional heal. */
 export interface WorkflowExecutionResponse {
   status: WorkflowExecutionStatus;
@@ -44,5 +72,12 @@ export interface WorkflowExecutionResponse {
   data: Record<string, unknown>;
   healed: boolean;
   trace_id: string;
-  diff?: SelectorDiff;
+  diff?: SelectorDiff | null;
+  recovery_attempted?: boolean;
+  error?: RecoveryError | null;
+  heal_records?: HealRecord[];
+  /** Omit when unavailable or when this request joined another recovery. */
+  agent_cost_usd?: number | null;
+  /** Total agent step time reported by Browser Use, in milliseconds. */
+  agent_duration_ms?: number | null;
 }

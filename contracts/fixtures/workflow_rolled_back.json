@@ -1,0 +1,59 @@
+{
+  "status": "failed",
+  "execution_time_ms": 4500.0,
+  "data": {},
+  "healed": false,
+  "trace_id": "0123456789abcdef0123456789abcdef",
+  "recovery_attempted": true,
+  "error": {
+    "code": "canary_mismatch",
+    "message": "Canary output did not match; the baseline was restored as version 4."
+  },
+  "heal_records": [
+    {
+      "field": "input_permit_id",
+      "diff": {
+        "old_selector": "#permit-id",
+        "new_selector": "[data-testid='permit-id']"
+      },
+      "evidence": {
+        "action_type": "input",
+        "history_step": 0,
+        "action_index": 0,
+        "node_name": "INPUT",
+        "attributes": {
+          "data-testid": "permit-id"
+        },
+        "accessible_name": "Permit ID",
+        "reasoning": "A unique executed action matches the ordered workflow field and element label."
+      },
+      "verification_outcome": "rolled_back",
+      "version_before": 1,
+      "version_after": 2,
+      "rollback_version": 4
+    },
+    {
+      "field": "submit_button",
+      "diff": {
+        "old_selector": "#submit-btn",
+        "new_selector": "[data-action='lookup']"
+      },
+      "evidence": {
+        "action_type": "click",
+        "history_step": 1,
+        "action_index": 0,
+        "node_name": "BUTTON",
+        "attributes": {
+          "data-action": "lookup"
+        },
+        "accessible_name": "Look up permit",
+        "reasoning": "A unique executed action matches the ordered workflow field and element label."
+      },
+      "verification_outcome": "rolled_back",
+      "version_before": 2,
+      "version_after": 3,
+      "rollback_version": 4
+    }
+  ],
+  "agent_duration_ms": 3100.0
+}

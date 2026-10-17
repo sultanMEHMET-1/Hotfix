@@ -1,0 +1,290 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://mender.local/contracts/workflow_execution_response.schema.json",
+  "$defs": {
+    "HealEvidence": {
+      "additionalProperties": false,
+      "description": "Executed action and element evidence grounding a field replacement.",
+      "properties": {
+        "action_type": {
+          "minLength": 1,
+          "title": "Action Type",
+          "type": "string"
+        },
+        "history_step": {
+          "minimum": 0,
+          "title": "History Step",
+          "type": "integer"
+        },
+        "action_index": {
+          "minimum": 0,
+          "title": "Action Index",
+          "type": "integer"
+        },
+        "node_name": {
+          "minLength": 1,
+          "title": "Node Name",
+          "type": "string"
+        },
+        "attributes": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "title": "Attributes",
+          "type": "object"
+        },
+        "reasoning": {
+          "minLength": 1,
+          "title": "Reasoning",
+          "type": "string"
+        },
+        "accessible_name": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Accessible Name"
+        },
+        "xpath": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Xpath"
+        }
+      },
+      "required": [
+        "action_type",
+        "history_step",
+        "action_index",
+        "node_name",
+        "attributes",
+        "reasoning"
+      ],
+      "title": "HealEvidence",
+      "type": "object"
+    },
+    "HealRecord": {
+      "additionalProperties": false,
+      "description": "One candidate's final disposition after the recovery transaction ends.",
+      "properties": {
+        "field": {
+          "minLength": 1,
+          "pattern": "^[a-z][a-z0-9_]*$",
+          "title": "Field",
+          "type": "string"
+        },
+        "diff": {
+          "$ref": "#/$defs/SelectorDiff"
+        },
+        "evidence": {
+          "$ref": "#/$defs/HealEvidence"
+        },
+        "verification_outcome": {
+          "enum": [
+            "committed",
+            "rolled_back",
+            "rejected"
+          ],
+          "title": "Verification Outcome",
+          "type": "string"
+        },
+        "version_before": {
+          "minimum": 1,
+          "title": "Version Before",
+          "type": "integer"
+        },
+        "version_after": {
+          "anyOf": [
+            {
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Version After"
+        },
+        "rollback_version": {
+          "anyOf": [
+            {
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Rollback Version"
+        }
+      },
+      "required": [
+        "field",
+        "diff",
+        "evidence",
+        "verification_outcome",
+        "version_before"
+      ],
+      "title": "HealRecord",
+      "type": "object"
+    },
+    "RecoveryError": {
+      "additionalProperties": false,
+      "description": "Stable failure code and a human-readable explanation.",
+      "properties": {
+        "code": {
+          "minLength": 1,
+          "title": "Code",
+          "type": "string"
+        },
+        "message": {
+          "minLength": 1,
+          "title": "Message",
+          "type": "string"
+        }
+      },
+      "required": [
+        "code",
+        "message"
+      ],
+      "title": "RecoveryError",
+      "type": "object"
+    },
+    "SelectorDiff": {
+      "additionalProperties": false,
+      "description": "Selector change applied by the healer for one semantic field.",
+      "properties": {
+        "old_selector": {
+          "minLength": 1,
+          "title": "Old Selector",
+          "type": "string"
+        },
+        "new_selector": {
+          "minLength": 1,
+          "title": "New Selector",
+          "type": "string"
+        }
+      },
+      "required": [
+        "old_selector",
+        "new_selector"
+      ],
+      "title": "SelectorDiff",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "description": "Result returned after a workflow run, including an optional heal.",
+  "properties": {
+    "status": {
+      "enum": [
+        "success",
+        "healed",
+        "failed"
+      ],
+      "title": "Status",
+      "type": "string"
+    },
+    "execution_time_ms": {
+      "minimum": 0,
+      "title": "Execution Time Ms",
+      "type": "number"
+    },
+    "data": {
+      "additionalProperties": true,
+      "title": "Data",
+      "type": "object"
+    },
+    "healed": {
+      "title": "Healed",
+      "type": "boolean"
+    },
+    "trace_id": {
+      "minLength": 1,
+      "title": "Trace Id",
+      "type": "string"
+    },
+    "diff": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/SelectorDiff"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "recovery_attempted": {
+      "default": false,
+      "title": "Recovery Attempted",
+      "type": "boolean"
+    },
+    "error": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/RecoveryError"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "heal_records": {
+      "items": {
+        "$ref": "#/$defs/HealRecord"
+      },
+      "title": "Heal Records",
+      "type": "array"
+    },
+    "agent_cost_usd": {
+      "anyOf": [
+        {
+          "minimum": 0,
+          "type": "number"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Agent Cost Usd"
+    },
+    "agent_duration_ms": {
+      "anyOf": [
+        {
+          "minimum": 0,
+          "type": "number"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Agent Duration Ms"
+    }
+  },
+  "required": [
+    "status",
+    "execution_time_ms",
+    "data",
+    "healed",
+    "trace_id"
+  ],
+  "title": "WorkflowExecutionResponse",
+  "type": "object"
+}
