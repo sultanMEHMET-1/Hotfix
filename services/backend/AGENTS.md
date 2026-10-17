@@ -41,6 +41,8 @@ These instructions supplement the repository and global AGENTS.md instructions.
   Rollback failure blocks further execution until reset and server restart.
 - Responses follow the shared schema. Unset/default optional fields can be
   omitted. M1 does not populate `heal_records` or implement shared flights.
+- Terminal output uses Rich without emojis. Keep cleanup in the renderer;
+  preserve original log records, literal selectors, errors, and Sentry context.
 
 ## Verification and reporting
 

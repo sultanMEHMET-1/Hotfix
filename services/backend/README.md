@@ -54,12 +54,47 @@ when a DSN is set. Traces and Sentry logs are enabled; local operation needs no 
 | `MENDER_HEADLESS` | `true`; set `false` to display the agent browser |
 | `MENDER_BROWSER_EXECUTABLE` | Browser Use's local browser discovery |
 | `MENDER_PROPAGATE_TRACE` | `false`; enable only when the runner supports optional trace flags |
+| `MENDER_LOG_LEVEL` | `INFO`; use `DEBUG` for detailed SDK console output |
 
 Runner cwd is the repository root. CLI arguments are passed without a shell;
 each subprocess gets its own UUID. Only artifacts at `runs/<run_id>/` are used.
 Person 1 should use a roughly two-second per-step timeout so broken selectors
 reach healing promptly. A runner timeout without failure evidence does not
 start a blind browser repair.
+
+## Terminal output
+
+The backend uses Rich for a timestamped, color-aware console timeline:
+
+```text
+FAST       Running workflow sample-lookup
+BROKEN     Runner exited with a failure
+AGENT      Browser Use engaged for submit_button
+AGENT      Step 1:
+AGENT      Typed the requested record reference
+AGENT      Step 2:
+AGENT      Clicked the lookup button
+PATCH      #old-lookup -> button[data-action="lookup"] (version 2)
+VERIFY     Deterministic replay and output schema passed
+CANARY     Known lookup matched expected output
+HEALED     Recovery verified
+```
+
+The live smoke test also prints a result panel with status, total latency,
+selector version, old/new selectors, workflow output, and trace ID. The existing
+live-test command is unchanged. On failure the panel says recovery failed;
+rollback appears as its own timeline event when it occurs.
+
+Emoji and SDK-supplied ANSI escapes are removed in console rendering. Selectors
+and bracketed text stay literal; international labels remain readable. Rich
+does not force colors when output is redirected. Normal output omits repeated
+agent memory/evaluation messages and HTTP/model info chatter. Warnings, errors,
+and exception details remain visible. Set `MENDER_LOG_LEVEL=DEBUG` to include
+the detailed SDK messages with the same emoji cleanup.
+
+Only console presentation is filtered. Original log records, file handlers,
+Sentry context, and workflow response data are preserved. Logs and the result
+panel write to stderr, so they do not contaminate a JSON stdout stream.
 
 ## Workflow definition
 

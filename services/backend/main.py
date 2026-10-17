@@ -16,6 +16,7 @@ from contracts.api_types import RecoveryError, SelectorDiff, WorkflowExecutionRe
 from .config import BackendError, Settings, load_workflows, masked_output, read_json, validator
 from .runner import Runner
 from .store import SelectorStore
+from .terminal import configure_logging
 
 
 log = logging.getLogger("mender.backend")
@@ -47,6 +48,7 @@ def create_app(settings=None):
 
     @asynccontextmanager
     async def lifespan(app):
+        configure_logging()
         sentry_sdk.init(
             traces_sample_rate=1.0, enable_logs=True, include_local_variables=False,
         )
@@ -90,6 +92,7 @@ def create_app(settings=None):
             sentry_sdk.set_tag("mode", "fast")
             sentry_sdk.set_tag("tier", "deterministic")
             with sentry_sdk.start_span(op="workflow.execute", name="run-workflow") as span:
+                log.info("Running workflow %s", request.workflow, extra={"phase": "FAST"})
                 trace_id = span.trace_id
                 attempted = False
                 candidate = None
@@ -110,6 +113,7 @@ def create_app(settings=None):
                         data = result.data
                     else:
                         capture_failure(request.workflow, result)
+                        log.warning("%s", str(result.error), extra={"phase": "BROKEN"})
                         if result.failure is None:
                             raise result.error
                         # ponytail: one selector map, so serialize M1 repairs; M3 adds shared flights.
@@ -134,6 +138,7 @@ def create_app(settings=None):
                                 sentry_sdk.set_tag("mode", "healed")
                                 sentry_sdk.set_tag("tier", "agent")
                                 sentry_sdk.add_breadcrumb(category="healer", message="Browser Use Agent Engaged")
+                                log.info("Browser Use engaged for %s", failure.failed_step, extra={"phase": "AGENT"})
                                 diagnose = app.state.diagnose
                                 if diagnose is None:
                                     module = await asyncio.to_thread(importlib.import_module, ".healer", __package__)
@@ -151,21 +156,26 @@ def create_app(settings=None):
                                                    "version": baseline["version"] + 1}
                                         store.write(patched)
                                         installed = True
+                                        log.info("%s -> %s (version %s)", failure.expected_selector,
+                                                 candidate.selector, patched["version"], extra={"phase": "PATCH"})
                                         replay = await runner.execute(request.workflow, request.params, output_validator)
                                         if replay.data is None:
                                             raise BackendError("verification_failed", "Deterministic replay rejected the replacement; baseline restored")
+                                        log.info("Deterministic replay and output schema passed", extra={"phase": "VERIFY"})
                                         if workflow.canary:
                                             canary = await runner.execute(request.workflow, workflow.canary.params, output_validator)
                                             if canary.data is None or masked_output(canary.data, workflow.canary.ignore_paths) != masked_output(
                                                 workflow.canary.expected_output, workflow.canary.ignore_paths
                                             ):
                                                 raise BackendError("canary_failed", "Canary rejected the replacement; baseline restored")
+                                            log.info("Known lookup matched expected output", extra={"phase": "CANARY"})
                                         data = replay.data
                                         diff = SelectorDiff(old_selector=failure.expected_selector, new_selector=candidate.selector)
                                 except BaseException:
                                     if installed:
                                         try:
-                                            store.restore(baseline)
+                                            restored = store.restore(baseline)
+                                            log.warning("Baseline restored as version %s", restored, extra={"phase": "ROLLBACK"})
                                         except Exception as rollback_error:
                                             app.state.configuration_error = "Rollback failed; restore the baseline backup before restarting the backend"
                                             raise BackendError("rollback_failed", app.state.configuration_error) from rollback_error
@@ -182,7 +192,9 @@ def create_app(settings=None):
                 success = error is None
                 sentry_sdk.set_tag("heal_success", bool(diff) and success)
                 if attempted:
-                    log.log(logging.INFO if success else logging.WARNING, "Browser Use recovery finished", extra={
+                    log.log(logging.INFO if success else logging.WARNING,
+                            "Recovery %s in %.2f s", "verified" if success else "failed", time.monotonic() - start, extra={
+                        "phase": "HEALED" if success else "FAILED",
                         "workflow": request.workflow, "mode": "healed", "heal_success": bool(diff) and success,
                         "old_selector": result.failure.expected_selector if result.failure else None,
                         "new_selector": candidate.selector if candidate else None,

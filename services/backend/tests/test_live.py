@@ -16,6 +16,7 @@ from fastapi.testclient import TestClient
 from services.backend.config import Settings
 from services.backend.main import create_app
 from services.backend.tests.test_m1 import workflow_definition
+from services.backend.terminal import configure_logging, show_result
 
 
 ROOT = Path(__file__).resolve().parents[3]
@@ -29,6 +30,9 @@ class LiveTest(unittest.TestCase):
         load_dotenv(ROOT / "services/backend/.env", override=False)
         self.assertTrue(os.getenv("GOOGLE_API_KEY") or os.getenv("GEMINI_API_KEY"), "A Gemini key is required")
         self.assertTrue(os.getenv("GEMINI_MODEL"), "A model must be selected explicitly")
+        console = configure_logging()
+        console.line()
+        console.rule("Mender | live recovery", style="cyan")
         page = (FIXTURES / "local_portal.html").read_bytes()
         class Handler(BaseHTTPRequestHandler):
             def do_GET(self):
@@ -68,8 +72,9 @@ class LiveTest(unittest.TestCase):
                     record_id = "live-" + uuid4().hex[:8]
                     response = client.post("/api/v1/run-workflow", json={"workflow": "sample-lookup", "params": {"record_id": record_id}})
                     payload = response.json()
+                    version = json.loads((root / "contracts/selectors.json").read_text())["version"]
+                    show_result(payload, version)
                     self.assertEqual(response.status_code, 200)
                     self.assertEqual(payload["status"], "healed", payload.get("error"))
                     self.assertEqual(payload["data"], {"record_id": record_id, "status": "found"})
                     self.assertEqual(json.loads((root / "contracts/selectors.json").read_text())["version"], 2)
-                    print("Live recovery passed: Gemini, grounded CSS, Playwright replay, and canary")

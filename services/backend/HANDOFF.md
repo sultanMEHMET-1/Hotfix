@@ -23,6 +23,7 @@ consumers must follow the defaults documented in the shared contract.
 | [healer.py](healer.py) | `diagnose`, `extract_evidence`, and `close_browser`; live Gemini/Browser Use, field grounding, CSS candidates, and browser cleanup. |
 | [store.py](store.py) | `SelectorStore` and `atomic_json`; POSIX file locks, same-directory temporary file plus replace, backups, and versioned restoration. |
 | [reset.py](reset.py) | Operator reset through the same validation and exclusive lock. |
+| [terminal.py](terminal.py) | Rich console timeline and live-test result panel; display-only emoji/ANSI cleanup, SDK info filtering, and idempotent console setup. |
 
 There is no existing Person 1 runner to call or dashboard to inspect in this
 checkout. The runner files under [tests/fixtures](tests/fixtures) are test
@@ -118,6 +119,24 @@ missing workflow definitions. Static checks passed with:
 uvx ruff check --isolated --select E4,E7,E9,F services/backend
 git diff --check
 ```
+
+### Terminal presentation follow-up
+
+The console follow-up keeps M1's workflow behavior and shared contracts intact.
+The default suite now runs 38 tests: 37 passed and the live test was skipped.
+The live Gemini/Browser Use/Playwright test also passed with the Rich timeline
+and verified-result panel. The live console capture contained no emoji
+pictographs. This does not extend the real-team integration or Sentry delivery
+claims above.
+
+[test_terminal.py](tests/test_terminal.py) checks display sanitization without
+mutating the original record, composed emoji, literal selectors and markup,
+international labels, error/traceback visibility, idempotent setup with file
+handlers preserved, readable result panels, and actual Browser Use logging for
+both SDK import orders. `configure_logging` runs at app startup, before the
+SDK import, to prevent the SDK's default console handler from taking over.
+`MENDER_LOG_LEVEL=DEBUG` expands console detail. Rendering uses stderr and does
+not force ANSI colors in captured output.
 
 ## Known gaps and integration dependencies
 
