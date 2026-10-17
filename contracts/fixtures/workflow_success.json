@@ -1,0 +1,10 @@
+{
+  "status": "success",
+  "execution_time_ms": 125.0,
+  "data": {
+    "record_id": "demo-001",
+    "status": "found"
+  },
+  "healed": false,
+  "trace_id": "0123456789abcdef0123456789abcdef"
+}
