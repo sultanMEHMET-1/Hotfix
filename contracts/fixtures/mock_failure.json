@@ -1,0 +1,10 @@
+{
+  "workflow_id": "permit-application",
+  "timestamp": 1760736000000,
+  "failed_step": "submit_button",
+  "expected_selector": "#submit-btn",
+  "page_url": "https://portal.example.gov/permits/apply",
+  "dom_snippet": "<button class=\"btn-primary v2\" data-action=\"submit\">Submit Application</button>",
+  "screenshot_path": "artifacts/permit-application/2026-10-17T22-00-00Z/failure.png",
+  "error_message": "Timeout 30000ms waiting for selector #submit-btn. Element was not attached within the step deadline."
+}

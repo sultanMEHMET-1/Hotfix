@@ -1,0 +1,50 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://mender.local/contracts/selectors.schema.json",
+  "title": "SelectorMap",
+  "description": "Deterministic element targeting for a single portal workflow. Semantic field names map to CSS selectors. This file is the only shared targeting contract between the portal runner and the healer.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["workflow_id", "target_url", "version", "fields"],
+  "properties": {
+    "workflow_id": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Stable identifier for the workflow these selectors belong to.",
+      "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$"
+    },
+    "target_url": {
+      "type": "string",
+      "format": "uri",
+      "minLength": 1,
+      "description": "Absolute URL of the page the selectors are written against."
+    },
+    "version": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "Monotonic revision. Increment when any selector in fields changes."
+    },
+    "fields": {
+      "type": "object",
+      "description": "Semantic name to CSS selector. Keys are stable field ids consumed by the runner; values are CSS selectors.",
+      "minProperties": 1,
+      "propertyNames": {
+        "type": "string",
+        "minLength": 1,
+        "pattern": "^[a-z][a-z0-9_]*$"
+      },
+      "additionalProperties": {
+        "type": "string",
+        "minLength": 1,
+        "description": "A CSS selector that uniquely targets the element for this semantic field."
+      },
+      "examples": [
+        {
+          "input_permit_id": "#permit-id",
+          "submit_button": "#submit-btn",
+          "status_badge": "[data-testid='status-badge']"
+        }
+      ]
+    }
+  }
+}

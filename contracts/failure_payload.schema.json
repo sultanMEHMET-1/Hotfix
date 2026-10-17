@@ -1,0 +1,62 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://mender.local/contracts/failure_payload.schema.json",
+  "title": "FailurePayload",
+  "description": "Artifact emitted when a deterministic workflow execution times out or fails while targeting a selector. The backend healer consumes this payload and does not require runner internals.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "workflow_id",
+    "timestamp",
+    "failed_step",
+    "expected_selector",
+    "page_url",
+    "dom_snippet",
+    "screenshot_path",
+    "error_message"
+  ],
+  "properties": {
+    "workflow_id": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Workflow that failed. Must match SelectorMap.workflow_id.",
+      "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$"
+    },
+    "timestamp": {
+      "type": "number",
+      "description": "Unix epoch milliseconds when the failure was recorded."
+    },
+    "failed_step": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Semantic field or step name that did not resolve, matching a key in SelectorMap.fields when the failure is a selector miss.",
+      "pattern": "^[a-z][a-z0-9_]*$"
+    },
+    "expected_selector": {
+      "type": "string",
+      "minLength": 1,
+      "description": "CSS selector the runner waited on."
+    },
+    "page_url": {
+      "type": "string",
+      "format": "uri",
+      "minLength": 1,
+      "description": "URL of the page at the moment of failure."
+    },
+    "dom_snippet": {
+      "type": "string",
+      "minLength": 1,
+      "description": "HTML fragment around the expected target, including shifted or broken markup the healer can compare."
+    },
+    "screenshot_path": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Workspace-relative or absolute path to the failure screenshot. Path only; the image bytes are not part of this contract."
+    },
+    "error_message": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Human-readable failure reason, including timeout and the selector that was not found."
+    }
+  }
+}
