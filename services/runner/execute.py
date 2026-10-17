@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import re
 import sys
 import time
@@ -26,6 +27,7 @@ DEFAULT_SELECTOR_PATH = REPOSITORY_ROOT / "contracts" / "selectors.json"
 DEFAULT_SCHEMA_PATH = REPOSITORY_ROOT / "contracts" / "selectors.schema.json"
 DEFAULT_FAILURE_SCHEMA_PATH = REPOSITORY_ROOT / "contracts" / "failure_payload.schema.json"
 DEFAULT_ARTIFACTS_DIR = Path(__file__).resolve().parent / "artifacts"
+DEFAULT_PLAYWRIGHT_BROWSERS_PATH = REPOSITORY_ROOT / ".venv" / "playwright-browsers"
 
 
 class RunnerConfigurationError(Exception):
@@ -249,9 +251,13 @@ def main(argv: list[str] | None = None) -> int:
         print(f"runner configuration error: {error}", file=sys.stderr)
         return 2
     try:
+        os.environ.setdefault("PLAYWRIGHT_BROWSERS_PATH", str(DEFAULT_PLAYWRIGHT_BROWSERS_PATH))
         from playwright.sync_api import sync_playwright
     except ImportError:
-        print("runner dependency missing: install Playwright and Chromium with `pip install -r services/runner/requirements.txt` and `playwright install chromium`", file=sys.stderr)
+        print(
+            "runner dependency missing: run `services/runner/setup_venv.sh`, then use `services/runner/run.sh`",
+            file=sys.stderr,
+        )
         return 2
 
     target_url = _default_target_url(args.target_url)
