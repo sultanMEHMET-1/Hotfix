@@ -13,6 +13,6 @@ npm run typecheck && npm test
 ```
 
 ## Mocks and the hour-15 handshake
-- `VITE_USE_MOCKS=true` (default): the fast path returns in ~300ms; **Simulate Heal** returns the healed response after 5s.
+- `VITE_USE_MOCKS=true` (default): responses are the contract fixtures in `contracts/fixtures/workflow_*.json`. The **Fast** scenario returns after ~300ms; **Heal** and **Rollback** return after 5s.
 - Handshake: copy `.env.example` to `.env.local`, set `VITE_USE_MOCKS=false`, and start Person 2's FastAPI on `:8000`. The Vite dev server proxies `/api` to it, so no CORS setup is needed.
 - `VITE_SENTRY_ORG` enables the "Open Sentry trace" deep-link.

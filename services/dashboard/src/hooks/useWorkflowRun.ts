@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { WorkflowExecutionResponse } from "@contracts/api_types";
 import { runWorkflow } from "../api/client";
+import { type MockScenario, fastResponse, healResponse } from "../api/mocks";
 import { USE_MOCKS } from "../config";
-import { AGENT_RUN_COST_USD, runCostUsd } from "../lib/cost";
+import { runCostUsd, usedAgent } from "../lib/cost";
 
 export type RunPhase = "idle" | "running-fast" | "running-healing" | "done" | "error";
 
@@ -11,18 +12,20 @@ export interface RunHistoryEntry {
   /** Epoch ms when the run was triggered. */
   startedAt: number;
   response: WorkflowExecutionResponse;
-  costUsd: number;
+  /** null when the agent ran but the backend did not report a cost. */
+  costUsd: number | null;
 }
 
 export interface Benchmarks {
   fastMs: number;
   healMs: number;
-  fastCost: number;
-  healCost: number;
+  fastCost: number | null;
+  healCost: number | null;
 }
 
 export interface TriggerOptions {
-  simulateHeal: boolean;
+  /** Mock mode only: which canned outcome to return. */
+  scenario: MockScenario;
 }
 
 export interface UseWorkflowRun {
@@ -40,15 +43,16 @@ export interface UseWorkflowRun {
 export const HISTORY_LIMIT = 20;
 /** In live mode, switch from "running-fast" to "running-healing" after this long without a response. */
 export const HEALING_THRESHOLD_MS = 1000;
+/** Baselines from the contract fixtures, shown until real runs arrive. */
 export const DEFAULT_BENCHMARKS: Benchmarks = {
-  fastMs: 310,
-  healMs: 12400,
-  fastCost: 0,
-  healCost: AGENT_RUN_COST_USD,
+  fastMs: fastResponse.execution_time_ms,
+  healMs: healResponse.execution_time_ms,
+  fastCost: runCostUsd(fastResponse),
+  healCost: runCostUsd(healResponse),
 };
 
 export function computeBenchmarks(history: RunHistoryEntry[]): Benchmarks {
-  const fast = history.find((h) => h.response.status === "success");
+  const fast = history.find((h) => h.response.status === "success" && !usedAgent(h.response));
   const heal = history.find((h) => h.response.status === "healed");
   return {
     fastMs: fast ? fast.response.execution_time_ms : DEFAULT_BENCHMARKS.fastMs,
@@ -92,7 +96,7 @@ export function useWorkflowRun(): UseWorkflowRun {
   );
 
   const trigger = useCallback(
-    ({ simulateHeal }: TriggerOptions) => {
+    ({ scenario }: TriggerOptions) => {
       cancelInFlight();
       const runId = ++runIdRef.current;
       const controller = new AbortController();
@@ -100,7 +104,7 @@ export function useWorkflowRun(): UseWorkflowRun {
       const startedAt = Date.now();
 
       setError(null);
-      if (USE_MOCKS && simulateHeal) {
+      if (USE_MOCKS && scenario !== "fast") {
         setPhase("running-healing");
       } else {
         setPhase("running-fast");
@@ -118,7 +122,7 @@ export function useWorkflowRun(): UseWorkflowRun {
         if (controllerRef.current === controller) controllerRef.current = null;
       };
 
-      runWorkflow({ simulateHeal, signal: controller.signal }).then(
+      runWorkflow({ scenario, signal: controller.signal }).then(
         (response) => {
           if (runIdRef.current !== runId) return;
           finish();

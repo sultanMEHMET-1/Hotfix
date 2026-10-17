@@ -1,9 +1,35 @@
 import type { WorkflowExecutionResponse } from "@contracts/api_types";
+// Mock responses are the agreed contract fixtures, imported read-only.
+import successFixture from "@contracts/fixtures/workflow_success.json";
+import healedFixture from "@contracts/fixtures/workflow_healed.json";
+import rolledBackFixture from "@contracts/fixtures/workflow_rolled_back.json";
+import { assertWorkflowExecutionResponse } from "./validate";
+
+/** Which canned backend outcome the mock returns. */
+export type MockScenario = "fast" | "heal" | "rollback";
 
 export const FAST_DELAY_MS = 300;
 export const HEAL_DELAY_MS = 5000;
 
-/** Fresh 32-char lowercase hex id, same shape as a Sentry trace id. */
+function fixture(value: unknown): WorkflowExecutionResponse {
+  assertWorkflowExecutionResponse(value);
+  return value;
+}
+
+/** Deterministic fast path (contracts/fixtures/workflow_success.json). */
+export const fastResponse = fixture(successFixture);
+/** Agent recovery that committed (contracts/fixtures/workflow_healed.json). */
+export const healResponse = fixture(healedFixture);
+/** Agent recovery that failed verification and was rolled back (contracts/fixtures/workflow_rolled_back.json). */
+export const rollbackResponse = fixture(rolledBackFixture);
+
+const RESPONSES: Record<MockScenario, WorkflowExecutionResponse> = {
+  fast: fastResponse,
+  heal: healResponse,
+  rollback: rollbackResponse,
+};
+
+/** Fresh 32-char lowercase hex id, same shape as a trace id. */
 export function newTraceId(): string {
   const bytes = new Uint8Array(16);
   const c = globalThis.crypto;
@@ -14,25 +40,6 @@ export function newTraceId(): string {
   }
   return Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("");
 }
-
-/** Template for the deterministic fast path. trace_id is replaced per call by mockRunWorkflow. */
-export const fastResponse: WorkflowExecutionResponse = {
-  status: "success",
-  healed: false,
-  execution_time_ms: 310,
-  data: { workflow_id: "permit-application", permit_status: "submitted" },
-  trace_id: newTraceId(),
-};
-
-/** Template for the self-healed path. trace_id is replaced per call by mockRunWorkflow. */
-export const healResponse: WorkflowExecutionResponse = {
-  status: "healed",
-  healed: true,
-  execution_time_ms: 12400,
-  data: { workflow_id: "permit-application", permit_status: "submitted", cost_usd: 0.0381 },
-  trace_id: newTraceId(),
-  diff: { old_selector: "#submit-btn", new_selector: 'button[data-action="submit"]' },
-};
 
 function abortError(): Error {
   return typeof DOMException !== "undefined"
@@ -56,19 +63,14 @@ function delay(ms: number, signal?: AbortSignal): Promise<void> {
 }
 
 /**
- * Waits FAST_DELAY_MS (or HEAL_DELAY_MS when simulateHeal) and resolves with a fresh copy
- * of the matching response carrying a new unique trace_id. Rejects with an AbortError if aborted.
+ * Waits FAST_DELAY_MS for the fast path or HEAL_DELAY_MS for agent scenarios, then resolves
+ * with a deep copy of the matching fixture carrying a new unique trace_id.
+ * Rejects with an AbortError if aborted.
  */
 export async function mockRunWorkflow(
-  simulateHeal: boolean,
+  scenario: MockScenario,
   signal?: AbortSignal,
 ): Promise<WorkflowExecutionResponse> {
-  await delay(simulateHeal ? HEAL_DELAY_MS : FAST_DELAY_MS, signal);
-  const base = simulateHeal ? healResponse : fastResponse;
-  return {
-    ...base,
-    data: { ...base.data },
-    ...(base.diff ? { diff: { ...base.diff } } : {}),
-    trace_id: newTraceId(),
-  };
+  await delay(scenario === "fast" ? FAST_DELAY_MS : HEAL_DELAY_MS, signal);
+  return { ...structuredClone(RESPONSES[scenario]), trace_id: newTraceId() };
 }

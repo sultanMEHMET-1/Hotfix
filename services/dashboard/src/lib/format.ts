@@ -5,7 +5,7 @@ export function formatMs(n: number): string {
   return `${msFormatter.format(Math.round(n))}ms`;
 }
 
-/** 0.0381 -> "$0.0381" (always 4 decimals). */
-export function formatUsd(n: number): string {
-  return `$${n.toFixed(4)}`;
+/** 0.0381 -> "$0.0381" (always 4 decimals); null -> "Unknown". */
+export function formatUsd(n: number | null): string {
+  return n === null ? "Unknown" : `$${n.toFixed(4)}`;
 }

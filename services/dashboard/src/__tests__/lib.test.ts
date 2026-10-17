@@ -1,26 +1,38 @@
 import { describe, expect, it } from "vitest";
 import type { WorkflowExecutionResponse } from "@contracts/api_types";
-import { AGENT_RUN_COST_USD, runCostUsd } from "../lib/cost";
+import { executionPathLabel, runCostUsd, usedAgent } from "../lib/cost";
 import { formatMs, formatUsd } from "../lib/format";
 import { sentryTraceUrl } from "../lib/sentry";
 
-const res = (status: WorkflowExecutionResponse["status"], data: Record<string, unknown> = {}) => ({ status, data });
+type R = Pick<WorkflowExecutionResponse, "healed" | "recovery_attempted" | "agent_cost_usd">;
+
+describe("usedAgent / executionPathLabel", () => {
+  it("uses recovery_attempted when present", () => {
+    expect(usedAgent({ healed: false, recovery_attempted: true })).toBe(true);
+    expect(usedAgent({ healed: true, recovery_attempted: false })).toBe(false);
+  });
+  it("falls back to healed for legacy responses", () => {
+    expect(usedAgent({ healed: true })).toBe(true);
+    expect(usedAgent({ healed: false })).toBe(false);
+  });
+  it("labels the path", () => {
+    expect(executionPathLabel({ healed: false })).toBe("Deterministic Playwright");
+    expect(executionPathLabel({ healed: false, recovery_attempted: true })).toBe("Browser Use Agent Engaged");
+  });
+});
 
 describe("runCostUsd", () => {
-  it("is 0 for success even with cost_usd", () => {
-    expect(runCostUsd(res("success", { cost_usd: 1 }))).toBe(0);
+  it("is 0 for a deterministic run", () => {
+    expect(runCostUsd({ healed: false } satisfies R)).toBe(0);
   });
-  it("uses data.cost_usd when finite", () => {
-    expect(runCostUsd(res("healed", { cost_usd: 0.05 }))).toBe(0.05);
-    expect(runCostUsd(res("failed", { cost_usd: 0.02 }))).toBe(0.02);
+  it("uses agent_cost_usd for agent runs, including a measured zero", () => {
+    expect(runCostUsd({ healed: true, recovery_attempted: true, agent_cost_usd: 0.002 })).toBe(0.002);
+    expect(runCostUsd({ healed: false, recovery_attempted: true, agent_cost_usd: 0 })).toBe(0);
   });
-  it("falls back per status", () => {
-    expect(AGENT_RUN_COST_USD).toBe(0.0381);
-    expect(runCostUsd(res("healed"))).toBe(0.0381);
-    expect(runCostUsd(res("healed", { cost_usd: "0.1" }))).toBe(0.0381);
-    expect(runCostUsd(res("healed", { cost_usd: Number.NaN }))).toBe(0.0381);
-    expect(runCostUsd(res("failed"))).toBe(0);
-    expect(runCostUsd(res("failed", { cost_usd: Infinity }))).toBe(0);
+  it("is unknown (null), never 0, when an agent run omits its cost", () => {
+    expect(runCostUsd({ healed: false, recovery_attempted: true })).toBeNull();
+    expect(runCostUsd({ healed: true, recovery_attempted: true, agent_cost_usd: null })).toBeNull();
+    expect(runCostUsd({ healed: true })).toBeNull();
   });
 });
 
@@ -46,5 +58,6 @@ describe("format", () => {
     expect(formatUsd(0)).toBe("$0.0000");
     expect(formatUsd(0.0381)).toBe("$0.0381");
     expect(formatUsd(1.23456)).toBe("$1.2346");
+    expect(formatUsd(null)).toBe("Unknown");
   });
 });

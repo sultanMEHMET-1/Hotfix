@@ -11,26 +11,25 @@ vi.mock("../config", () => ({
 }));
 
 import { runWorkflow } from "../api/client";
-import { FAST_DELAY_MS, HEAL_DELAY_MS, fastResponse, healResponse, mockRunWorkflow } from "../api/mocks";
+import {
+  FAST_DELAY_MS,
+  HEAL_DELAY_MS,
+  fastResponse,
+  healResponse,
+  mockRunWorkflow,
+  rollbackResponse,
+} from "../api/mocks";
+import successFixture from "@contracts/fixtures/workflow_success.json";
+import healedFixture from "@contracts/fixtures/workflow_healed.json";
+import rolledBackFixture from "@contracts/fixtures/workflow_rolled_back.json";
 
 const HEX32 = /^[0-9a-f]{32}$/;
 
 describe("mock responses", () => {
-  it("match the contract fixtures", () => {
-    expect(fastResponse).toMatchObject({
-      status: "success",
-      healed: false,
-      execution_time_ms: 310,
-      data: { workflow_id: "permit-application", permit_status: "submitted" },
-    });
-    expect(fastResponse.diff).toBeUndefined();
-    expect(healResponse).toMatchObject({
-      status: "healed",
-      healed: true,
-      execution_time_ms: 12400,
-      data: { cost_usd: 0.0381 },
-      diff: { old_selector: "#submit-btn", new_selector: 'button[data-action="submit"]' },
-    });
+  it("are the contract fixtures", () => {
+    expect(fastResponse).toEqual(successFixture);
+    expect(healResponse).toEqual(healedFixture);
+    expect(rollbackResponse).toEqual(rolledBackFixture);
   });
 });
 
@@ -61,7 +60,7 @@ describe("runWorkflow (mock mode)", () => {
 
   it("resolves the heal response after HEAL_DELAY_MS", async () => {
     let settled = false;
-    const p = runWorkflow({ simulateHeal: true }).then((r) => {
+    const p = runWorkflow({ scenario: "heal" }).then((r) => {
       settled = true;
       return r;
     });
@@ -70,13 +69,31 @@ describe("runWorkflow (mock mode)", () => {
     await vi.advanceTimersByTimeAsync(1);
     const r = await p;
     expect(r.status).toBe("healed");
-    expect(r.diff?.new_selector).toBe('button[data-action="submit"]');
+    expect(r.diff).toEqual(healedFixture.diff);
+    expect(r.heal_records).toHaveLength(2);
     expect(r.trace_id).toMatch(HEX32);
+  });
+
+  it("resolves the rolled-back failure after HEAL_DELAY_MS", async () => {
+    const p = runWorkflow({ scenario: "rollback" });
+    await vi.advanceTimersByTimeAsync(HEAL_DELAY_MS);
+    const r = await p;
+    expect(r.status).toBe("failed");
+    expect(r.error?.code).toBe("canary_mismatch");
+    expect(r.heal_records?.every((h) => h.verification_outcome === "rolled_back")).toBe(true);
+  });
+
+  it("returns a copy, so callers cannot mutate the fixtures", async () => {
+    const p = runWorkflow({ scenario: "heal" });
+    await vi.advanceTimersByTimeAsync(HEAL_DELAY_MS);
+    const r = await p;
+    r.heal_records![0].field = "changed";
+    expect(healResponse.heal_records![0].field).toBe("input_permit_id");
   });
 
   it("rejects with AbortError when aborted", async () => {
     const c = new AbortController();
-    const p = mockRunWorkflow(true, c.signal);
+    const p = mockRunWorkflow("heal", c.signal);
     const assertion = expect(p).rejects.toMatchObject({ name: "AbortError" });
     c.abort();
     await assertion;
@@ -125,5 +142,14 @@ describe("runWorkflow (live mode)", () => {
   it("throws when required fields are missing", async () => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(JSON.stringify({ status: "success" }), { status: 200 })));
     await expect(runWorkflow()).rejects.toThrow(/execution_time_ms.*data.*healed.*trace_id/);
+  });
+
+  it("accepts the recovery fields and rejects malformed ones", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(JSON.stringify(rolledBackFixture), { status: 200 })));
+    await expect(runWorkflow()).resolves.toEqual(rolledBackFixture);
+
+    const bad = { ...healedFixture, recovery_attempted: "yes", agent_cost_usd: "0.1", heal_records: [{}] };
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(JSON.stringify(bad), { status: 200 })));
+    await expect(runWorkflow()).rejects.toThrow(/recovery_attempted.*heal_records.*agent_cost_usd/);
   });
 });
