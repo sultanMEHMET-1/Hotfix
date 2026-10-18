@@ -4,14 +4,6 @@ import "@testing-library/jest-dom/vitest";
 import App from "../App";
 import { HEAL_DELAY_MS, FAST_DELAY_MS } from "../api/mocks";
 import { setUseMocks } from "../config";
-import { FADE_MS } from "../hooks/useFadeSwitch";
-
-async function switchTab(label: string) {
-  fireEvent.click(screen.getByRole("button", { name: label }));
-  await act(async () => {
-    await vi.advanceTimersByTimeAsync(FADE_MS);
-  });
-}
 
 describe("App", () => {
   beforeEach(() => {
@@ -25,7 +17,8 @@ describe("App", () => {
 
   it("renders idle state with baseline benchmarks", () => {
     render(<App />);
-    expect(screen.getByText("Idle")).toBeInTheDocument();
+    expect(screen.queryByText("Idle")).toBeNull();
+    expect(screen.getAllByRole("status")[0]).toBeEmptyDOMElement();
     expect(screen.getByText("Trigger workflow")).toBeInTheDocument();
     expect(screen.getAllByText("No runs yet").length).toBeGreaterThan(0);
   });
@@ -38,7 +31,6 @@ describe("App", () => {
     });
     expect(screen.getByText("Fast path, cached selector")).toBeInTheDocument();
 
-    await switchTab("Run log");
     expect(screen.getByText("success")).toBeInTheDocument();
   });
 
@@ -75,7 +67,6 @@ describe("App", () => {
     expect(screen.getByText(/Canary output did not match/)).toBeInTheDocument();
     expect(screen.getAllByText("Rolled back")).toHaveLength(2);
 
-    await switchTab("Run log");
     expect(screen.getByText("Unknown")).toBeInTheDocument();
   });
 
@@ -87,19 +78,21 @@ describe("App", () => {
       await vi.advanceTimersByTimeAsync(HEAL_DELAY_MS);
     });
     expect(screen.getAllByText("healed").length).toBeGreaterThan(0);
-    expect(screen.getByText("~34× slower")).toBeInTheDocument();
+    expect(screen.getByText("34×")).toBeInTheDocument();
   });
 
-  it("toggles mocks off and hides the scenario picker, then restores it", () => {
+  it("Live is off while the scenario buttons show, on once they are hidden, and back", () => {
     render(<App />);
+    const live = screen.getByRole("button", { name: "Live" });
+    expect(live).toHaveAttribute("aria-pressed", "false");
     expect(screen.getByText("Fast")).toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole("button", { name: /Mocks on/ }));
-    expect(screen.getByText("Mocks off")).toBeInTheDocument();
+    fireEvent.click(live);
+    expect(live).toHaveAttribute("aria-pressed", "true");
     expect(screen.queryByText("Fast")).not.toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole("button", { name: /Mocks off/ }));
-    expect(screen.getByText("Mocks on")).toBeInTheDocument();
+    fireEvent.click(live);
+    expect(live).toHaveAttribute("aria-pressed", "false");
     expect(screen.getByText("Fast")).toBeInTheDocument();
   });
 });

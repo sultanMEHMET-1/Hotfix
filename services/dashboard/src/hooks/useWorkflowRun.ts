@@ -23,7 +23,6 @@ export interface RunHistoryEntry {
 export interface Benchmarks {
   fastMs: number | null;
   healMs: number | null;
-  fastCost: number | null;
   healCost: number | null;
 }
 
@@ -53,12 +52,11 @@ export const HEALING_THRESHOLD_MS = 1000;
 export const DEFAULT_BENCHMARKS: Benchmarks = {
   fastMs: fastResponse.execution_time_ms,
   healMs: healResponse.execution_time_ms,
-  fastCost: runCostUsd(fastResponse),
   healCost: runCostUsd(healResponse),
 };
 
 /** Live mode before any real run: every figure is unknown. */
-export const EMPTY_BENCHMARKS: Benchmarks = { fastMs: null, healMs: null, fastCost: null, healCost: null };
+export const EMPTY_BENCHMARKS: Benchmarks = { fastMs: null, healMs: null, healCost: null };
 
 /** Real runs win; otherwise fall back to `placeholders` (fixture numbers in mock mode, n/a in live mode). */
 export function computeBenchmarks(
@@ -70,7 +68,6 @@ export function computeBenchmarks(
   return {
     fastMs: fast ? fast.response.execution_time_ms : placeholders.fastMs,
     healMs: heal ? heal.response.execution_time_ms : placeholders.healMs,
-    fastCost: fast ? fast.costUsd : placeholders.fastCost,
     healCost: heal ? heal.costUsd : placeholders.healCost,
   };
 }

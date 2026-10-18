@@ -79,3 +79,27 @@ describe("failedCopy", () => {
     expect(text).toMatch(/Rollback failed/);
   });
 });
+
+import { workflowLabel } from "../lib/workflowLabel";
+import { formatDuration } from "../lib/format";
+
+describe("workflowLabel", () => {
+  it("names the demo sites, and spaces out any other id", () => {
+    expect(workflowLabel("permit-application")).toBe("Permit portal");
+    expect(workflowLabel("record-update")).toBe("Inventory desk");
+    expect(workflowLabel("new-site-check")).toBe("New site check");
+  });
+});
+
+describe("formatDuration", () => {
+  it("uses milliseconds under a second, seconds under a minute, then minutes", () => {
+    expect(formatDuration(125)).toBe("125 ms");
+    expect(formatDuration(999)).toBe("999 ms");
+    expect(formatDuration(999.6)).toBe("1.0 s");
+    expect(formatDuration(1000)).toBe("1.0 s");
+    expect(formatDuration(4200)).toBe("4.2 s");
+    expect(formatDuration(59940)).toBe("59.9 s");
+    expect(formatDuration(59960)).toBe("1 m 0 s");
+    expect(formatDuration(72000)).toBe("1 m 12 s");
+  });
+});

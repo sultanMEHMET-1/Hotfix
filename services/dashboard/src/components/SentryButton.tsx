@@ -4,7 +4,7 @@ export default function SentryButton({ traceId }: { traceId: string | null }) {
   const url = traceId ? sentryTraceUrl(traceId) : null;
 
   if (!url) {
-    return <span className="text-xs text-ink-faint">Sentry not configured</span>;
+    return <span className="text-sm text-ink-muted">Sentry not configured</span>;
   }
 
   return (
@@ -12,7 +12,7 @@ export default function SentryButton({ traceId }: { traceId: string | null }) {
       href={url}
       target="_blank"
       rel="noreferrer"
-      className="text-xs text-accent underline decoration-accent/30 underline-offset-4 transition-colors hover:decoration-accent"
+      className="inline-flex min-h-[44px] items-center text-sm text-ink underline decoration-2 underline-offset-4 hover:decoration-ink"
     >
       View Sentry trace
     </a>

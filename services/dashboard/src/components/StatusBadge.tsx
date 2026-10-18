@@ -22,19 +22,11 @@ export function failedCopy(result: WorkflowExecutionResponse | null): string {
 }
 
 const COPY: Record<BadgeState, string> = {
-  idle: "Idle",
+  idle: "",
   fast: "Fast path, cached selector",
   healing: "Agent is re-indexing the page",
   healed: "Healed, selector patched",
   failed: "Reverted after a failed recovery",
-};
-
-const DOT: Record<BadgeState, string> = {
-  idle: "bg-ink-faint",
-  fast: "bg-success",
-  healing: "bg-warning",
-  healed: "bg-success",
-  failed: "bg-danger",
 };
 
 const TEXT: Record<BadgeState, string> = {
@@ -47,18 +39,9 @@ const TEXT: Record<BadgeState, string> = {
 
 export default function StatusBadge({ state, label }: { state: BadgeState; label?: string }) {
   return (
-    <div
-      className="inline-flex items-center gap-2 rounded-md border border-line bg-surface py-1 pl-1.5 pr-3 transition-colors"
-      role="status"
-    >
-      <span className="relative flex h-2 w-2">
-        {state === "healing" && <span className={`absolute inline-flex h-full w-full animate-ping rounded-full opacity-60 ${DOT[state]}`} />}
-        <span className={`relative inline-flex h-2 w-2 rounded-full ${DOT[state]}`} />
-      </span>
-      <span className={`text-sm font-medium ${TEXT[state]}`}>{label ?? COPY[state]}</span>
-      {state === "healed" && (
-        <span className="rounded-sm bg-warning-bg px-1.5 py-0.5 text-[10px] font-semibold text-warning">healed</span>
-      )}
+    // Empty while idle: nothing to announce yet, but the live region is already there for the first result.
+    <div role="status" className={`font-display text-lg leading-tight ${TEXT[state]} ${state === "healing" ? "motion-safe:animate-pulse" : ""}`}>
+      {label ?? COPY[state]}
     </div>
   );
 }

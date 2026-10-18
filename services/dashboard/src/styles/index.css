@@ -3,84 +3,134 @@
 @tailwind utilities;
 
 @layer base {
+  /* Vellum by day. Ink, litmus green, wet-ink amber and oxblood are the only inks. */
   :root {
-    --color-surface: 255 255 255;
-    --color-surface-subtle: 244 246 248;
-    --color-line: 221 226 231;
-    --color-ink: 22 33 44;
-    --color-ink-muted: 91 107 120;
-    --color-ink-faint: 138 151 163;
-    --color-accent: 47 111 237;
-    --color-success: 15 142 96;
-    --color-success-bg: 227 244 236;
-    --color-warning: 158 99 11;
-    --color-warning-bg: 250 237 217;
-    --color-danger: 190 48 48;
-    --color-danger-bg: 252 229 229;
+    --color-ground: 243 237 222;
+    --color-surface: 251 247 236;
+    --color-surface-subtle: 236 228 208;
+    --color-line: 190 180 158;
+    --color-ink: 32 29 26;
+    --color-ink-muted: 84 76 66;
+    --color-ink-faint: 105 96 82;
+    --color-shadow: 32 29 26;
+    --color-success: 47 93 58;
+    --color-success-bg: 223 232 214;
+    --color-warning: 150 86 24;
+    --color-warning-bg: 246 234 212;
+    --color-danger: 122 35 35;
+    --color-danger-bg: 238 214 208;
+    --glass-bg: rgb(32 29 26 / 0.04);
+    --glass-shadow: rgb(0 0 0 / 0.22);
+    color-scheme: light;
   }
 
-  /* System dark preference, unless the user has explicitly chosen light in-app. */
+  /* Warm espresso by night, not cool slate. */
   @media (prefers-color-scheme: dark) {
     :root:not([data-theme="light"]) {
-      --color-surface: 22 29 46;
-      --color-surface-subtle: 14 19 32;
-      --color-line: 38 47 68;
-      --color-ink: 236 240 247;
-      --color-ink-muted: 148 160 184;
-      --color-ink-faint: 98 110 136;
-      --color-accent: 96 165 250;
-      --color-success: 52 211 153;
-      --color-success-bg: 20 50 44;
-      --color-warning: 240 180 65;
-      --color-warning-bg: 54 40 16;
-      --color-danger: 241 112 112;
-      --color-danger-bg: 54 22 24;
+      --color-ground: 28 23 20;
+      --color-surface: 38 31 27;
+      --color-surface-subtle: 49 41 35;
+      --color-line: 84 72 61;
+      --color-ink: 240 232 218;
+      --color-ink-muted: 196 184 166;
+      --color-ink-faint: 165 153 135;
+      --color-shadow: 8 6 5;
+      --color-success: 143 196 130;
+      --color-success-bg: 36 52 34;
+      --color-warning: 222 164 90;
+      --color-warning-bg: 62 44 22;
+      --color-danger: 230 138 126;
+      --color-danger-bg: 66 30 28;
+      --glass-bg: rgb(0 0 0 / 0.35);
+      --glass-shadow: rgb(0 0 0 / 0.6);
+      color-scheme: dark;
     }
   }
 
-  /* Explicit in-app choice of dark, overriding system light. */
   :root[data-theme="dark"] {
-    --color-surface: 22 29 46;
-    --color-surface-subtle: 14 19 32;
-    --color-line: 38 47 68;
-    --color-ink: 236 240 247;
-    --color-ink-muted: 148 160 184;
-    --color-ink-faint: 98 110 136;
-    --color-accent: 96 165 250;
-    --color-success: 52 211 153;
-    --color-success-bg: 20 50 44;
-    --color-warning: 240 180 65;
-    --color-warning-bg: 54 40 16;
-    --color-danger: 241 112 112;
-    --color-danger-bg: 54 22 24;
+    --color-ground: 28 23 20;
+    --color-surface: 38 31 27;
+    --color-surface-subtle: 49 41 35;
+    --color-line: 84 72 61;
+    --color-ink: 240 232 218;
+    --color-ink-muted: 196 184 166;
+    --color-ink-faint: 165 153 135;
+    --color-shadow: 8 6 5;
+    --color-success: 143 196 130;
+    --color-success-bg: 36 52 34;
+    --color-warning: 222 164 90;
+    --color-warning-bg: 62 44 22;
+    --color-danger: 230 138 126;
+    --color-danger-bg: 66 30 28;
+    --glass-bg: rgb(0 0 0 / 0.35);
+    --glass-shadow: rgb(0 0 0 / 0.6);
+    color-scheme: dark;
   }
 
   html {
     scroll-behavior: smooth;
   }
 
+  /* Plain vellum. The structure is drawn with rules, not with a pattern. */
   body {
-    @apply bg-surface-subtle text-ink antialiased;
-    font-family: "Hanken Grotesk", ui-sans-serif, system-ui, sans-serif;
+    @apply bg-ground font-sans text-base text-ink antialiased;
+    caret-color: rgb(var(--color-ink));
   }
 
+  h1, h2, h3 {
+    @apply font-display font-medium;
+    text-wrap: balance;
+    font-synthesis-weight: none;
+  }
+
+  p { text-wrap: pretty; }
+
   ::selection {
-    @apply bg-success-bg text-success;
+    @apply bg-warning-bg text-ink;
+  }
+
+  /* One focus language everywhere: a heavy ink outline, offset so it never touches the control. */
+  :focus-visible {
+    outline: 2px solid rgb(var(--color-ink));
+    outline-offset: 3px;
   }
 }
 
 @layer utilities {
+  /* Frosted bar, taken from the Portfolio header: a faint tint, a blur, a hairline underneath. */
+  .glass-bar {
+    background: var(--glass-bg);
+    -webkit-backdrop-filter: blur(12px);
+    backdrop-filter: blur(12px);
+    @apply border-b border-border;
+  }
+
+  /* Frosted control, from the Portfolio's glass button, with this page's square corners. */
+  .glass-rect {
+    -webkit-backdrop-filter: blur(24px);
+    backdrop-filter: blur(24px);
+    box-shadow: inset 0 1px 0 0 rgb(255 255 255 / 0.18), 0 10px 30px -12px var(--glass-shadow);
+    @apply rounded-panel border border-border-strong bg-ink/[0.06] transition-[background-color,transform] duration-300 hover:-translate-y-px hover:bg-ink/10;
+  }
+  .glass-rect[aria-pressed="true"] {
+    @apply bg-ink/[0.16] font-semibold;
+  }
+
   .tabular-nums {
     font-variant-numeric: tabular-nums;
   }
 
-  .scrollbar-slim::-webkit-scrollbar {
-    width: 8px;
+  /* A printed card: solid paper, a hard ink rule, a flat offset. Only an applied result earns the offset. */
+  .printed {
+    @apply rounded-panel border-[1.5px] border-ink bg-surface shadow-print;
   }
-  .scrollbar-slim::-webkit-scrollbar-thumb {
-    background: rgb(var(--color-line));
-    border-radius: 99px;
+
+  .scrollbar-slim {
+    scrollbar-width: thin;
+    scrollbar-color: rgb(var(--color-line)) transparent;
   }
+  .scrollbar-slim::-webkit-scrollbar { height: 8px; width: 8px; }
+  .scrollbar-slim::-webkit-scrollbar-thumb { background: rgb(var(--color-line)); }
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -88,6 +138,7 @@
   *::before,
   *::after {
     animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
     transition-duration: 0.001ms !important;
     scroll-behavior: auto !important;
   }

@@ -27,11 +27,11 @@ function useCountdown(seconds: number | null | undefined): number | null {
 export default function ErrorBanner({ error, cooldownRemainingS }: ErrorBannerProps) {
   const left = useCountdown(cooldownRemainingS);
   return (
-    <div className="mb-5 mt-4 flex animate-fade-up flex-col gap-0.5 rounded-xl border border-danger/20 bg-danger-bg px-4 py-3">
-      <span className="font-mono text-xs text-danger">{error.code}</span>
-      <span className="text-sm text-danger">{error.message}</span>
+    <div role="alert" className="mt-8 flex flex-col gap-2 rounded-panel border-[1.5px] border-danger bg-danger-bg px-6 py-5 text-danger">
+      <p className="font-display text-lg leading-snug">{error.message}</p>
+      <span className="font-mono text-sm">{error.code}</span>
       {left !== null && (
-        <span className="text-xs text-danger" role="timer">
+        <span className="text-sm" role="timer">
           {left > 0 ? `Cached failure: retry in ${Math.ceil(left)} s` : "Cooldown over: a retry will run again"}
         </span>
       )}
