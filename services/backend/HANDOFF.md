@@ -169,6 +169,14 @@ samples (not percentiles):
 | Sandbox site, save button | 28.9 s | 1 | n/a | $0.031 | exactly 3 writes: agent, replay, canary |
 | Dashboard, real browser, 3 loops | 29.9 to 32.4 s | 1 | n/a | about $0.031 | `rehearse_ui.py`, 3 of 3 pass |
 
+Inventory desk (12 seeded rows, navigation, filters, audit, supplier note) versus the previous simple site, paired and
+alternated (B1, C1, C2, B2, B3, C3), `gemini-3.5-flash-lite`, `sandbox-hard`: baseline 3 of 3, mean 14.1 s (13.4 to 15.3),
+$0.0058 per heal; candidate 3 of 3, mean 14.0 s (13.4 to 15.2), $0.0061 per heal (time ratio 1.00, cost ratio 1.06, more
+input tokens). Every candidate trial also passed the after-heal site checks (at most 3 writes, audit length
+`min(writes, 5)`, audit entries only for the benchmark and canary records, empty supplier note, values landed) and a
+deterministic follow-up with diagnosis disabled. Total estimated spend $0.036. Results: `state/records-demo/paired-comparison.json`
+(git-ignored). Three trials per side is a screening, not proof.
+
 `python -m services.backend.rehearse 5` passed 5 of 5 loops, twice (before and after the canary change). The
 400 ms target is not proven: fixture and local-portal numbers do not describe a real site's latency.
 
