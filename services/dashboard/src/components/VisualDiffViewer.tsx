@@ -41,7 +41,7 @@ export default function VisualDiffViewer({ phase, result }: VisualDiffViewerProp
                   ? "Rollback failed. Restore the selectors before running again."
                   : result.status === "failed"
                     ? "No selector was changed. Recovery did not complete."
-                    : "No selector changes — the cache is still fresh"}
+                    : "No selector changes - the cache is still fresh"}
             </span>
           </div>
         ) : (

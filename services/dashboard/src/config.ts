@@ -2,7 +2,7 @@ const env = import.meta.env;
 
 /**
  * Mock API switch. Set VITE_USE_MOCKS=false to call the real backend by default.
- * Live-togglable at runtime from the dashboard header via `setUseMocks` — an
+ * Live-togglable at runtime from the dashboard header via `setUseMocks` - an
  * ES module named export is a live binding, so every importer (including
  * `runWorkflow`) sees the toggled value on its next read, no plumbing needed.
  */

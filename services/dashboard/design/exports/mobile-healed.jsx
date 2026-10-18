@@ -143,7 +143,7 @@
             </div>
           </div>
           <div className="font-sans text-[11px] inline-block leading-[14px] text-ink-muted">
-            Why: input · INPUT · Permit ID — matches the ordered workflow field and element label.
+            Why: input · INPUT · Permit ID - matches the ordered workflow field and element label.
           </div>
         </div>
         <div className="flex flex-col [width:100%] p-[14px] rounded-md gap-[10px] bg-surface border border-solid border-border">
@@ -179,7 +179,7 @@
             </div>
           </div>
           <div className="font-sans text-[11px] inline-block leading-[14px] text-ink-muted">
-            Why: click · BUTTON · Look up permit — matches the ordered workflow field and element label.
+            Why: click · BUTTON · Look up permit - matches the ordered workflow field and element label.
           </div>
         </div>
       </div>

@@ -1,4 +1,4 @@
-# Paper design prompt — Mender Dashboard
+# Paper design prompt - Mender Dashboard
 
 Paper is the design source of truth for `/services/dashboard`. The code is built from what Paper produces here, so we design in Paper first and never redraw code in Paper afterwards.
 
