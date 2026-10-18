@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import * as Sentry from "@sentry/react";
 import type { WorkflowExecutionResponse, WorkflowSummary } from "@contracts/api_types";
-import { runWorkflow } from "../api/client";
+import { DEFAULT_WORKFLOW, runWorkflow } from "../api/client";
 import { type MockScenario, fastResponse, healResponse } from "../api/mocks";
 import { USE_MOCKS } from "../config";
 import { runCostUsd, usedAgent } from "../lib/cost";
@@ -10,6 +10,8 @@ export type RunPhase = "idle" | "running-fast" | "running-healing" | "done" | "e
 
 export interface RunHistoryEntry {
   id: string;
+  /** Which workflow produced this run, so the benchmark cards never mix workflows. */
+  workflowId: string;
   /** Epoch ms when the run was triggered. */
   startedAt: number;
   response: WorkflowExecutionResponse;
@@ -59,7 +61,10 @@ export const DEFAULT_BENCHMARKS: Benchmarks = {
 export const EMPTY_BENCHMARKS: Benchmarks = { fastMs: null, healMs: null, fastCost: null, healCost: null };
 
 /** Real runs win; otherwise fall back to `placeholders` (fixture numbers in mock mode, n/a in live mode). */
-export function computeBenchmarks(history: RunHistoryEntry[], placeholders: Benchmarks = DEFAULT_BENCHMARKS): Benchmarks {
+export function computeBenchmarks(
+  history: RunHistoryEntry[], placeholders: Benchmarks = DEFAULT_BENCHMARKS, workflowId?: string,
+): Benchmarks {
+  history = workflowId === undefined ? history : history.filter((h) => h.workflowId === workflowId);
   const fast = history.find((h) => h.response.status === "success" && !usedAgent(h.response));
   const heal = history.find((h) => h.response.status === "healed");
   return {
@@ -76,7 +81,7 @@ function isAbortError(e: unknown): boolean {
 
 let entrySeq = 0;
 
-export function useWorkflowRun(mocksOn: boolean = USE_MOCKS): UseWorkflowRun {
+export function useWorkflowRun(mocksOn: boolean = USE_MOCKS, workflowId?: string): UseWorkflowRun {
   const [phase, setPhase] = useState<RunPhase>("idle");
   const [result, setResult] = useState<WorkflowExecutionResponse | null>(null);
   const [error, setError] = useState<Error | null>(null);
@@ -141,6 +146,7 @@ export function useWorkflowRun(mocksOn: boolean = USE_MOCKS): UseWorkflowRun {
           finish();
           const entry: RunHistoryEntry = {
             id: `${startedAt}-${++entrySeq}`,
+            workflowId: workflow?.id ?? DEFAULT_WORKFLOW.id,
             startedAt,
             response,
             costUsd: runCostUsd(response),
@@ -161,8 +167,8 @@ export function useWorkflowRun(mocksOn: boolean = USE_MOCKS): UseWorkflowRun {
   );
 
   const benchmarks = useMemo(
-    () => computeBenchmarks(history, mocksOn ? DEFAULT_BENCHMARKS : EMPTY_BENCHMARKS),
-    [history, mocksOn],
+    () => computeBenchmarks(history, mocksOn ? DEFAULT_BENCHMARKS : EMPTY_BENCHMARKS, workflowId),
+    [history, mocksOn, workflowId],
   );
 
   return { phase, result, error, history, benchmarks, trigger };
