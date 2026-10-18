@@ -7,7 +7,7 @@ export interface WorkflowPickerProps {
   disabled: boolean;
 }
 
-/** Choose which site's workflow to run. The chosen one is filled ink with a filled marker. Only shown when there is a choice. */
+/** Choose which site's workflow to run. The chosen one is filled ink. Only shown when there is a choice. */
 export default function WorkflowPicker({ workflows, selected, onSelect, disabled }: WorkflowPickerProps) {
   if (workflows.length < 2) return null;
   return (
@@ -26,7 +26,6 @@ export default function WorkflowPicker({ workflows, selected, onSelect, disabled
               on ? "bg-ink font-semibold text-ground" : "bg-surface text-ink-muted hover:bg-surface-subtle hover:text-ink"
             }`}
           >
-            <span aria-hidden="true" className={`h-3 w-3 shrink-0 border-[1.5px] ${on ? "border-ground bg-ground" : "border-ink-faint"}`} />
             {w.id}
             {w.mutates && (
               <span className={`rounded-panel border px-1.5 py-0.5 text-xs font-medium ${on ? "border-ground text-ground" : "border-warning text-warning"}`}>writes</span>

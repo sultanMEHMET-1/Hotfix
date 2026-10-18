@@ -52,7 +52,13 @@ export default function App() {
 
         <main id="main">
           <div className="mt-10">
-            <h1 className="break-words font-mono text-[clamp(2rem,5.5vw,3.5rem)] font-medium leading-tight tracking-tight">{workflow.id}</h1>
+            <div className="flex flex-wrap items-center gap-x-5 gap-y-2">
+              <h1 className="break-words font-mono text-[clamp(2rem,5.5vw,3.5rem)] font-medium leading-tight tracking-tight">{workflow.id}</h1>
+              <span className="rounded-panel border-2 border-ink px-3 py-1 font-mono text-sm font-semibold uppercase tracking-wider">Selected</span>
+              {workflow.mutates && (
+                <span className="rounded-panel border-2 border-warning px-3 py-1 font-mono text-sm font-semibold uppercase tracking-wider text-warning">Writes</span>
+              )}
+            </div>
             <p className="mt-2 max-w-[62ch] text-base text-ink-muted">{workflow.goal}</p>
           </div>
 
