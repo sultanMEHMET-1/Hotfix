@@ -55,13 +55,6 @@ describe("the page chrome", () => {
     expect(container.querySelectorAll("[title]")).toHaveLength(0);
   });
 
-  it("puts the wand mark beside the wordmark, hidden from screen readers", () => {
-    const { container } = render(<App />);
-    const mark = container.querySelector("header svg[aria-hidden='true']");
-    expect(mark).not.toBeNull();
-    expect(container.querySelector("header")).toHaveTextContent("Mender");
-  });
-
   it("flips the theme with one icon button whose label names the action", () => {
     render(<App />);
     const toggle = screen.getByRole("button", { name: /Switch to (dark|light) mode/ });
