@@ -329,8 +329,19 @@ test that fails without the fix, 1 was fixed in part, and 1 is documented:
 
 - **Warm driver.** Playwright import and driver start cost about 197 ms of the 367 ms fast path. A persistent
   driver is the measured next optimization; not built.
-- **Public sites.** Reads work on any reachable site in principle; sites that block headless browsers or put the
-  data behind a login or captcha fail by design (`agent_blocked`). Untested against real public sites.
+- **Public sites.** Tried on five real sites (read-only workflows with a search or click step, scratch roots, not
+  committed): python.org, Wikipedia, scrapethissite.com, the-internet.herokuapp.com, httpbin.org. Fast path: python.org
+  (0.5 s), scrapethissite (1.0 s), Wikipedia (0.9 s) and httpbin (0.8 s) ran first time with correct output. With the
+  submit button's selector broken on purpose, a paid heal worked on python.org (`button[id="submit"]`, 13 s, $0.0046)
+  and Wikipedia (`form[id="searchform"] > div > button`, 16 s, $0.0075), and the next request ran on the new selector.
+  Findings: (1) a step's `label` and `role` must equal the page's accessible name and role exactly (`Search for
+  Teams:` with the colon; Wikipedia's box is a `searchbox`), or grounding refuses with `ambiguous_element`; (2) if
+  the agent shortcuts the task without clicking (scrapethissite once navigated to `?q=...` directly), there is no
+  click evidence, so the heal is refused and rolled back, which is safe but not a repair; (3) the 2 s per-step cap
+  also bounds page load and reads, so a result that appears after about 5 s (the-internet dynamic loading) fails
+  the fast path; (4) an output that echoes volatile data (httpbin's headers include a trace id) cannot have a
+  canary, so the heal was rolled back as `canary_failed`. Login or captcha walls and sites that block headless
+  browsers were not tried. Total spend about $0.05.
 - **Read healing limits.** It needs a visible `text` output on the field (attribute-only outputs refuse). When
   every output of a field is constant across params, only uniqueness, the intersection rule and the canary
   protect against a wrong element.
