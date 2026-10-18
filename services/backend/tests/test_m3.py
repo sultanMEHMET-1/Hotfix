@@ -320,6 +320,30 @@ class M3Tests(M2Harness):
         events = [item.payload.json for envelope in envelopes for item in envelope.items if item.headers.get("type") == "event"]
         self.assertTrue(any("exception" in event for event in events), events)
 
+    async def test_an_agent_that_gives_up_early_is_retried_within_the_cap(self):
+        calls = []
+
+        async def gives_up_once(settings, workflow, params, failed, **kwargs):
+            calls.append(failed.failed_step)
+            if len(calls) == 1:
+                raise BackendError("agent_blocked", "Browser Use could not complete the task")
+            return await self.diagnose(settings, workflow, params, failed, **kwargs)
+        self.app.state.diagnose = gives_up_once
+        payload = (await self.request()).json()
+        self.assertEqual(payload["status"], "healed", payload)
+        self.assertEqual(calls, ["input_reference", "input_reference", "submit_button"])
+
+    async def test_a_real_login_wall_spends_the_cap_and_fails_without_records(self):
+        async def always_blocked(settings, workflow, params, failed, **kwargs):
+            self.calls.append(failed.failed_step)
+            raise BackendError("agent_blocked", "Browser Use could not complete the task")
+        self.app.state.diagnose = always_blocked
+        payload = (await self.request()).json()
+        self.assertEqual((payload["status"], payload["error"]["code"]), ("failed", "agent_blocked"))
+        self.assertEqual(len(self.calls), 3)
+        self.assertNotIn("heal_records", payload)
+        self.assertEqual(self.selectors(), self.baseline)
+
     # Safety
 
     async def test_error_messages_are_safe_to_show(self):

@@ -106,7 +106,7 @@ class AdapterTests(unittest.IsolatedAsyncioTestCase):
     async def test_no_agent_result_is_retryable_and_clients_are_cleaned(self):
         await self.exercise_adapter("no_result")
 
-    async def test_agent_reporting_failure_behind_a_login_wall_is_not_retried(self):
+    async def test_agent_reporting_failure_is_raised_as_agent_blocked(self):
         await self.exercise_adapter("blocked")
 
     async def exercise_adapter(self, mode):

@@ -22,7 +22,9 @@ from .store import atomic_json
 
 
 log = logging.getLogger("mender.backend")
-RETRYABLE = {"agent_error", "agent_timeout", "agent_no_result"}
+# A self-declared failure (agent_blocked) is an agent-level outcome too: models sometimes give up early, and a retry
+# within the three-invocation cap often succeeds. A real login wall just spends the cap and fails.
+RETRYABLE = {"agent_error", "agent_timeout", "agent_no_result", "agent_blocked"}
 # Configuration, cancellation and failed-cleanup outcomes never enter the cooldown.
 UNCACHEABLE = {"model_unconfigured", "backend_unavailable", "recovery_cancelled", "rollback_failed",
                "cleanup_timeout", "browser_cleanup_failed", "runner_cleanup_failed", "model_cleanup_failed"}
