@@ -74,6 +74,11 @@ class SelectorBrowserTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual((await self.page.evaluate(read_selector_expression(["Approved"], budget_ms=-1)))["count"], -1)
         self.assertEqual((await self.probe("Approved"))["count"], 1)
 
+    async def test_page_text_that_looks_like_a_placeholder_is_not_rewritten(self):
+        await self.page.set_content('<h1>BUDGET FORGIVING TEXTS</h1>')
+        found = await self.page.evaluate(read_selector_expression(["BUDGET FORGIVING TEXTS"], forgiving=True))
+        self.assertEqual((found["count"], found["tag"]), (1, "H1"))
+
     async def test_read_probe_ignores_hidden_duplicates(self):
         await self.page.set_content('<span id="sticky" style="display:none">Approved</span><span data-testid="status">Approved</span>')
         found = await self.probe("Approved")

@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { WorkflowSummary } from "@contracts/api_types";
 import { createDraft, deleteWorkflow, keepDraft, type DraftPreview } from "../api/client";
 import { useElapsed } from "../hooks/useElapsed";
@@ -43,18 +43,22 @@ export interface CreateWorkflowProps {
   site: PublicSite;
   /** The selected workflow, so a created one can be deleted from here. */
   selectedId: string;
+  /** A run is in flight: saving or deleting would change the selected workflow under it, so wait. */
+  locked?: boolean;
   onKept: (workflow: WorkflowSummary) => void;
   onDeleted: (id: string) => void;
 }
 
 /** Describe a read-only task in a sentence; the backend builds, tests and previews a workflow, and the user keeps or discards it. */
-export default function CreateWorkflow({ site, selectedId, onKept, onDeleted }: CreateWorkflowProps) {
+export default function CreateWorkflow({ site, selectedId, locked = false, onKept, onDeleted }: CreateWorkflowProps) {
   const [text, setText] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [draft, setDraft] = useState<DraftPreview | null>(null);
   const controller = useRef<AbortController | null>(null);
   const elapsed = useElapsed(busy);
+  // Leaving the page or the site stops waiting for a creation that is no longer wanted.
+  useEffect(() => () => controller.current?.abort(), []);
 
   const create = async () => {
     controller.current?.abort();
@@ -175,7 +179,7 @@ export default function CreateWorkflow({ site, selectedId, onKept, onDeleted }: 
           </div>
           {draft.warnings.length > 0 && <p className="pb-4 text-sm text-warning">{draft.warnings.join(" ")}</p>}
           <div className="flex flex-wrap gap-3 border-t border-line py-5">
-            <button type="button" onClick={keep} disabled={busy} className={PRIMARY}>Save workflow</button>
+            <button type="button" onClick={keep} disabled={busy || locked} className={PRIMARY}>Save workflow</button>
             <button type="button" onClick={() => setDraft(null)} disabled={busy} className={SECONDARY}>Discard</button>
           </div>
         </div>
@@ -184,7 +188,7 @@ export default function CreateWorkflow({ site, selectedId, onKept, onDeleted }: 
       {isCreated(selectedId) && !draft && (
         <div className="mt-8 flex flex-wrap items-center gap-4 border-t border-line pt-5">
           <span className="text-base text-ink-muted">This workflow was created from a sentence.</span>
-          <button type="button" onClick={remove} disabled={busy} className={SECONDARY}>Delete workflow</button>
+          <button type="button" onClick={remove} disabled={busy || locked} className={SECONDARY}>Delete workflow</button>
         </div>
       )}
 

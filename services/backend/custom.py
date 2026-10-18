@@ -46,16 +46,22 @@ class Drafts:
         if len(custom_ids(app)) >= MAX_CUSTOM:
             raise BackendError("quota_total", f"At most {MAX_CUSTOM} created workflows can be kept; delete one first")
 
+    def count_attempt(self):
+        """Every attempt that could have spent model money counts toward the hourly quota, kept or not."""
+        self.created.append(self.clock())
+
     def add(self, draft):
         token = uuid4().hex[:12]
         self.items[token] = (self.clock() + DRAFT_TTL_S, draft)
-        self.created.append(self.clock())
         return token
 
-    def take(self, token):
+    def get(self, token):
         self.prune()
-        entry = self.items.pop(token, None)
+        entry = self.items.get(token)
         return entry[1] if entry else None
+
+    def discard(self, token):
+        self.items.pop(token, None)
 
 
 def write_atomic(path: Path, data: dict):

@@ -119,6 +119,31 @@ describe("the page and the helpers", () => {
     vi.useRealTimers();
   });
 
+  it("starts fresh when the selected workflow moves to another site", async () => {
+    vi.useFakeTimers();
+    render(<App />);
+    await act(async () => { await vi.advanceTimersByTimeAsync(10); });
+    fireEvent.click(screen.getByRole("button", { name: "Wikipedia" }));
+    fireEvent.change(screen.getByLabelText("What should it read?"), { target: { value: "Open the article for Marie Curie" } });
+    fireEvent.click(screen.getByRole("button", { name: "Create workflow" }));
+    await flush();
+    expect(screen.getByRole("button", { name: "Save workflow" })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Books" }));
+    expect(screen.queryByRole("button", { name: "Save workflow" })).toBeNull();
+    expect((screen.getByLabelText("What should it read?") as HTMLTextAreaElement).value).toBe("");
+    expect(screen.getByText(/Describe what to read on Books to Scrape/)).toBeInTheDocument();
+    vi.useRealTimers();
+  });
+
+  it("cannot save or delete while a run is in flight", async () => {
+    vi.useFakeTimers();
+    const { rerender } = render(<CreateWorkflow site="wikipedia" selectedId="custom-wikipedia-x-1" locked onKept={vi.fn()} onDeleted={vi.fn()} />);
+    expect(screen.getByRole("button", { name: "Delete workflow" })).toBeDisabled();
+    rerender(<CreateWorkflow site="wikipedia" selectedId="custom-wikipedia-x-1" onKept={vi.fn()} onDeleted={vi.fn()} />);
+    expect(screen.getByRole("button", { name: "Delete workflow" })).toBeEnabled();
+    vi.useRealTimers();
+  });
+
   it("names created workflows by their goal and maps ids to sites", () => {
     expect(workflowLabel("custom-wikipedia-x-1", "Search for a topic and read the heading.")).toBe("Search for a topic and read…");
     expect(workflowLabel("custom-wikipedia-x-1", "Read a heading.")).toBe("Read a heading");

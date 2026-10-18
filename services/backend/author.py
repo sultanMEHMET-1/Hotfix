@@ -36,6 +36,8 @@ SITES = {
 NAME = r"^[a-z][a-z0-9_]{0,24}$"
 MAX_STEPS = 6
 ALLOWED_ACTIONS = {"input", "click", "done", "wait", "scroll"}
+# Refusals made before any model runs, so they cost nothing and do not count toward the hourly quota.
+FREE_REFUSALS = {"unknown_site", "bad_request", "not_read_only", "model_unconfigured"}
 UNSAFE_NAME = re.compile(r"(?i)\b(publish|save changes|save page|log ?in|sign ?in|create account|donate|edit)\b")
 # Words that mean the user wants something done, not read. Checked on the request itself, before any model call,
 # because a model will happily rewrite "edit this article" into "read this article".
@@ -89,12 +91,14 @@ def slug(text, fallback="field"):
 
 def validate_request(site, request):
     if site not in SITES:
-        raise BackendError("unknown_site", "Pick Wikipedia or python.org")
+        raise BackendError("unknown_site", "Pick one of: " + ", ".join(name for name, _, _ in SITES.values()))
     request = " ".join((request or "").split())
     if not 5 <= len(request) <= 300:
         raise BackendError("bad_request", "Describe what you want in 5 to 300 characters")
-    if ACTION_WORDS.search(request):
-        raise BackendError("not_read_only", "Only requests that read information can be created")
+    action = ACTION_WORDS.search(request)
+    if action:
+        raise BackendError("not_read_only", f"Only requests that read information can be created. The word \"{action.group(0)}\" "
+                           "sounds like an action, so reword the request as plain reading.")
     return request
 
 

@@ -165,8 +165,9 @@ def read_selector_expression(texts, budget_ms=5000, forgiving=False):
       const attributes = Object.fromEntries([...target.attributes].map(attribute => [attribute.name, attribute.value]));
       return {count: 1, selector, tag: target.tagName, attributes, text: norm(target.innerText)};
     })()"""
-    return (script.replace("TEXTS", json.dumps(list(texts), ensure_ascii=False)).replace("BUDGET", str(int(budget_ms)))
-            .replace("FORGIVING", "true" if forgiving else "false"))
+    # The page text goes in last: text containing a placeholder word (BUDGET, FORGIVING) must not be rewritten.
+    return (script.replace("BUDGET", str(int(budget_ms))).replace("FORGIVING", "true" if forgiving else "false")
+            .replace("TEXTS", json.dumps(list(texts), ensure_ascii=False)))
 
 
 def extract_evidence(history: dict, workflow, failure):

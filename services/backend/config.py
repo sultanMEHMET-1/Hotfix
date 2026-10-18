@@ -2,6 +2,7 @@
 
 from dataclasses import dataclass
 import json
+import logging
 import os
 from pathlib import Path
 import shutil
@@ -112,7 +113,16 @@ def load_workflow(path: Path):
 
 
 def load_workflows(settings: Settings):
-    return {path.stem: load_workflow(path) for path in sorted(settings.workflows_dir.glob("*.json"))}
+    workflows = {}
+    for path in sorted(settings.workflows_dir.glob("*.json")):
+        try:
+            workflows[path.stem] = load_workflow(path)
+        except Exception:
+            if not path.name.startswith("custom-"):
+                raise
+            # A broken workflow someone created must not take the built-in ones down with it.
+            logging.getLogger("mender").warning("Skipping invalid created workflow %s", path.name)
+    return workflows
 
 
 def referenced_fields(definition):

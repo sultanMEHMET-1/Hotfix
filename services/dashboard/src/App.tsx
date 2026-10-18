@@ -85,6 +85,8 @@ export default function App() {
             {publicSite(workflow.id) && (
               <ScrollReveal>
                 <CreateWorkflow
+                  key={publicSite(workflow.id)}
+                  locked={phase === "running-fast" || phase === "running-healing"}
                   site={publicSite(workflow.id)!}
                   selectedId={workflow.id}
                   onKept={(created) => { setWorkflows((list) => [...list, created]); setWorkflowId(created.id); }}

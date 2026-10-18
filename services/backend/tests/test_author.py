@@ -57,8 +57,13 @@ class SitesAndParams(M2Harness):
         for site, host in (("books", "books.toscrape.com"), ("quotes", "quotes.toscrape.com")):
             self.assertEqual(author.SITES[site][2], host)
             self.assertEqual(author.validate_request(site, "Open the Travel category"), "Open the Travel category")
-        with self.assertRaises(BackendError):
+        with self.assertRaises(BackendError) as unknown:
             author.validate_request("example", "Open the Travel category")
+        for name in ("Wikipedia", "python.org", "Books to Scrape", "Quotes to Scrape"):
+            self.assertIn(name, str(unknown.exception))
+        with self.assertRaises(BackendError) as refused:
+            author.validate_request("wikipedia", "Report the release order on python.org")
+        self.assertIn('"order"', str(refused.exception))
 
     def test_a_parameter_nothing_types_is_dropped_so_click_only_workflows_have_none(self):
         click_only = [{"field": "click_travel", "action_type": "click", "label": "Travel"}]
@@ -230,6 +235,46 @@ class KeepingCreatedWorkflows(M2Harness):
         with self.post_draft():
             reply = await self.client.post("/api/v1/workflows/draft", json={"site": "wikipedia", "request": "Read the heading"})
         self.assertEqual((reply.status_code, reply.json()["detail"]["code"]), (422, "quota_hour"))
+
+    async def test_attempts_that_may_have_spent_money_count_toward_the_hour_but_free_refusals_do_not(self):
+        body = {"site": "wikipedia", "request": "Read the heading"}
+        for _ in range(12):
+            with self.post_draft(error=BackendError("not_read_only", "no")):
+                self.assertEqual((await self.client.post("/api/v1/workflows/draft", json=body)).status_code, 422)
+        self.assertEqual(self.app.state.drafts.created, [])
+        for _ in range(custom.DRAFTS_PER_HOUR):
+            with self.post_draft(error=BackendError("replay_failed", "no")):
+                self.assertEqual((await self.client.post("/api/v1/workflows/draft", json=body)).status_code, 422)
+        with self.post_draft():
+            reply = await self.client.post("/api/v1/workflows/draft", json=body)
+        self.assertEqual((reply.status_code, reply.json()["detail"]["code"]), (422, "quota_hour"))
+
+    async def test_a_preview_survives_a_failed_keep_and_can_be_kept_again(self):
+        preview = await self.create()
+        with patch.object(custom, "MAX_CUSTOM", 0):
+            self.assertEqual((await self.client.post(f"/api/v1/workflows/draft/{preview['id']}/accept")).status_code, 422)
+        with patch("services.backend.custom.keep", side_effect=OSError("disk full")):
+            self.assertEqual((await self.client.post(f"/api/v1/workflows/draft/{preview['id']}/accept")).status_code, 500)
+        self.assertEqual((await self.client.post(f"/api/v1/workflows/draft/{preview['id']}/accept")).status_code, 200)
+        self.assertEqual((await self.client.post(f"/api/v1/workflows/draft/{preview['id']}/accept")).status_code, 404)
+
+    async def test_delete_waits_for_a_run_in_progress_instead_of_pulling_its_files(self):
+        preview = await self.create()
+        await self.client.post(f"/api/v1/workflows/draft/{preview['id']}/accept")
+        async with self.app.state.stores["custom-wikipedia-heading-ab12"].lock(exclusive=False):  # a run holds the shared lock
+            self.assertEqual((await self.client.delete("/api/v1/workflows/custom-wikipedia-heading-ab12")).status_code, 409)
+        self.assertIn("custom-wikipedia-heading-ab12", self.app.state.workflows)
+        self.assertEqual((await self.client.delete("/api/v1/workflows/custom-wikipedia-heading-ab12")).status_code, 200)
+
+    async def test_a_broken_created_workflow_does_not_stop_the_built_in_ones_from_loading(self):
+        (self.settings.workflows_dir / "custom-garbage.json").write_text("{ not json")
+        definition = sample_draft().definition
+        (self.settings.workflows_dir / "custom-nomap.json").write_text(json.dumps(definition))
+        restarted = create_app(self.settings)
+        async with restarted.router.lifespan_context(restarted):
+            self.assertIsNone(restarted.state.configuration_error)
+            self.assertEqual(sorted(restarted.state.workflows), ["sample-lookup"])
+            self.assertEqual(sorted(restarted.state.stores), ["sample-lookup"])
 
     async def test_expired_drafts_and_remote_callers_are_refused(self):
         preview = await self.create()
