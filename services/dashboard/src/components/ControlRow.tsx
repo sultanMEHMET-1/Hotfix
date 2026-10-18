@@ -43,10 +43,20 @@ export default function ControlRow({
         <WorkflowPicker workflows={workflows} selected={workflowId} onSelect={onWorkflowChange} disabled={running} />
 
         <div className="flex flex-wrap items-center gap-3">
-          <button type="button" onClick={onToggleMocks} aria-pressed={mocksOn} title="Filled: canned demo responses, no backend needed. Outlined: the real backend."
-            className={`${SECONDARY} ${mocksOn ? "!bg-ink !text-ground" : ""}`}>
-            Demo
-          </button>
+          <div className="flex" role="group" aria-label="Data source">
+            {([["Mocks", true, "Canned responses, no backend needed"], ["Demo", false, "The real backend, runner and agent"]] as const).map(([label, mocks, hint]) => (
+              <button
+                key={label}
+                type="button"
+                title={hint}
+                onClick={() => mocksOn !== mocks && onToggleMocks()}
+                aria-pressed={mocksOn === mocks}
+                className={`${SECONDARY} -ml-[1.5px] first:ml-0 ${mocksOn === mocks ? "!bg-ink !text-ground" : ""}`}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
           {mocksOn ? (
             <div className="flex" role="group" aria-label="Mock scenario">
               {SCENARIOS.map((s) => (
