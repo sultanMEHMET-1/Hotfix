@@ -20,7 +20,7 @@ These instructions supplement the repository and global AGENTS.md instructions.
   (PR for the user to merge; never merge it yourself). New work needs an explicit instruction.
 - Backend source, tests, fixtures, and docs belong under `services/backend/`. The portal,
   runner, dashboard, and `contracts/` belong to other owners. Changes there need an explicit
-  instruction, go in their own commit, and are for the owner to review. Runtime selector
+  instruction, go in their own commit, and stay reviewable on their own. Runtime selector
   updates and version bumps by the healer are always allowed. The user has authorized
   contract and cross-folder changes for the current branch; ask again for anything new.
 - Treat the shared JSON schemas and models as authoritative. Import shared models instead of

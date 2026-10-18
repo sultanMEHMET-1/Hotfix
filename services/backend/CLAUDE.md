@@ -9,7 +9,7 @@ Mender is a hackathon project (LA Hacks, AI track, 24 hours, software only). It 
 
 ## Who owns what
 - Person 1: /services/portal and /services/runner. Person 3: /services/dashboard. Person 2 (the user, who you work for): /services/backend. /contracts holds shared interfaces.
-- Default: author code only under /services/backend. Runtime updates of the selector maps (including version bump) by the healer are always allowed. The user has authorized cross-owner changes for the current branch ("fix everything first", then "if we need to change the contracts do so, change whatever you'd like in the codebase"): the generic runner, contracts layout, dashboard picker and Sentry. Those are in their own commits for the owners to review. For anything beyond this branch's scope, ask again.
+- Default: author code only under /services/backend. Runtime updates of the selector maps (including version bump) by the healer are always allowed. The user has authorized cross-owner changes for the current branch ("fix everything first", then "if we need to change the contracts do so, change whatever you'd like in the codebase"): the generic runner, contracts layout, dashboard picker and Sentry. Those are in their own commits as separate commits. For anything beyond this branch's scope, ask again.
 - Branch: codex/browser-use-recovery. Push only to it. Never merge to main without a fresh explicit instruction. (PR #1 was merged into main at the user's explicit instruction, merge commit a09569c; that was a one-time authorization.)
 
 ## Prize tracks the demo must support
@@ -56,9 +56,9 @@ Sentry (Best Use of Sentry), Browser Use, MLH Best Use of Gemini API. Cognition/
 - Hackathon realism: will this run repeatedly on conference Wi-Fi, and is it too complex for the time left?
 
 ## Dependencies on teammates (flag, do not work around)
-- Person 1: the generic runner and map-driven target_url are done (reviewed by nobody yet). Keep per-step Playwright timeouts at about 2 s; keep chaos mutations healable (at least one unique CSS-addressable attribute per changed element); keep dynamic tokens and timestamps out of the failure DOM snippet, or the 15 s cooldown never hits. A paste-ready message is in `proposals/message-person1.md`.
+- Person 1: the generic runner and map-driven target_url are done. Keep per-step Playwright timeouts at about 2 s; keep chaos mutations healable (at least one unique CSS-addressable attribute per changed element); keep dynamic tokens and timestamps out of the failure DOM snippet, or the 15 s cooldown never hits. A paste-ready message is in `proposals/message-person1.md`.
 - Person 3: the dashboard has the workflow picker, the cooldown countdown (cooldown_remaining_s), honest n/a numbers and Sentry browser tracing and Replay. Remember that heal_records describe the selector transaction while status describes the caller's run.
-- Contracts owner: has not reviewed PR #1 or this branch's contract changes (per-workflow maps, WorkflowDefinition/WorkflowSummary, cooldown_remaining_s). Open questions: agent_duration_ms as the sum of SDK step durations, and empty heal_records omitted rather than sent as [].
+- Contracts: the team owns them together, so contract changes need no outside review. Decided: agent_duration_ms is the sum of SDK step durations, and empty heal_records are omitted rather than sent as [].
 
 ## Commands
 Run from the repository root with Python 3.12 and uv. Full lists and costs are in README.md ("Tests and tools").

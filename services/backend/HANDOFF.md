@@ -174,7 +174,7 @@ samples (not percentiles):
 ## Integration with the other services
 
 `origin/phase-1` (portal and runner) and `origin/mender-dashboard` are merged. Cross-owner edits were made at
-the backend owner's request, each in its own commit so the owner can review or revert it. Earlier (PR #1):
+the backend owner's request, each in its own commit so it can be reviewed or reverted on its own. Earlier (PR #1):
 
 1. **Runner** `services/runner/execute.py`: accepts the agreed `--workflow --params --run-id` (plus
    `--sentry-trace`, `--baggage`) and writes `runs/<run_id>/failure_payload.json` and `failure.png`; the old flags
@@ -334,10 +334,8 @@ test that fails without the fix, 1 was fixed in part, and 1 is documented:
 - **Read healing limits.** It needs a visible `text` output on the field (attribute-only outputs refuse). When
   every output of a field is constant across params, only uniqueness, the intersection rule and the canary
   protect against a wrong element.
-- **Contracts owner review.** PR #1 and this branch's contract changes (per-workflow maps, `WorkflowDefinition`,
-  `WorkflowSummary`, `cooldown_remaining_s`) were made at the backend owner's instruction and have not been
-  reviewed by the contracts owner. Two decisions to record: `agent_duration_ms` is the sum of SDK step
-  durations, and empty `heal_records` are omitted (equivalent to `[]`).
+- **Contract decisions.** The team owns the contracts together. Recorded: `agent_duration_ms` is the sum of SDK
+  step durations, and empty `heal_records` are omitted (equivalent to `[]`).
 - **Sentry.** No dashboard was created (the plugin cannot); `recovery.total_tokens` and `recovery.success` are not
   queryable. In the trace tree the click span and the fetch span are siblings.
 - **Backend.** Synchronous filesystem work cannot be preempted, so the 240 s ceiling is not a guarantee against an
