@@ -66,6 +66,11 @@ def validate_failure(workflow_id, workflow, selectors, result):
         raise BackendError("stale_failure", "Failure does not match the current selector map")
     position = next((i for i, step in enumerate(workflow.steps) if step.field == failure.failed_step), None)
     if position is None:
+        # Reads happen after every action, in output order.
+        reads = list(dict.fromkeys(output.field for output in workflow.outputs.values()))
+        if failure.failed_step in reads:
+            position = len(workflow.steps) + reads.index(failure.failed_step)
+    if position is None:
         raise BackendError("unmapped_step", "Failed step is absent from ordered workflow steps")
     if urlsplit(failure.page_url)[:2] != urlsplit(selectors["target_url"])[:2]:
         raise BackendError("unexpected_page", "Failure page does not match the configured portal origin")
@@ -225,6 +230,8 @@ class Recovery:
                                         result = replay
                                         continue
                                     log.info("Deterministic replay and output schema passed", extra={"phase": "VERIFY"})
+                                    if candidate.reported and any(replay.data.get(key) != value for key, value in candidate.reported.items()):
+                                        raise BackendError("read_mismatch", "The replay read a different value than the agent reported")
                                     if workflow.canary:
                                         canary = await runner.execute(workflow_id, workflow.canary.params, output_validator, deadline=deadline)
                                         if canary.data is None or masked_output(canary.data, workflow.canary.ignore_paths) != masked_output(

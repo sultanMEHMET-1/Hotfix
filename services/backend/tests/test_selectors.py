@@ -4,7 +4,7 @@ import os
 from pathlib import Path
 import unittest
 
-from services.backend.healer import selector_expression
+from services.backend.healer import read_selector_expression, selector_expression
 
 
 @unittest.skipUnless(os.getenv("MENDER_BROWSER_TEST") == "1", "Set MENDER_BROWSER_TEST=1 for real DOM checks")
@@ -59,3 +59,36 @@ class SelectorBrowserTests(unittest.IsolatedAsyncioTestCase):
         await self.page.set_content('<button>Other</button><button data-testid="référence">Target</button>')
         selector = await self.selector("/html/body/button[2]", {"data-testid": "référence"})
         self.assertEqual(selector, 'button[data-testid="référence"]')
+
+    async def probe(self, *texts):
+        return await self.page.evaluate(read_selector_expression(texts))
+
+    async def test_read_probe_finds_the_one_element_showing_the_text(self):
+        await self.page.set_content('<p>intro</p><span data-testid="status">Approved</span>')
+        found = await self.probe("Approved")
+        self.assertEqual((found["count"], found["selector"], found["tag"]), (1, 'span[data-testid="status"]', "SPAN"))
+        self.assertEqual(found["attributes"], {"data-testid": "status"})
+
+    async def test_read_probe_ignores_wrappers_that_only_contain_the_match(self):
+        await self.page.set_content('<div id="outer"><div id="inner"><span data-testid="status">Approved</span></div></div>')
+        self.assertEqual((await self.probe("Approved"))["selector"], 'span[data-testid="status"]')
+
+    async def test_read_probe_refuses_duplicates_and_missing_text(self):
+        await self.page.set_content('<span>Approved</span><b>Approved</b>')
+        self.assertEqual((await self.probe("Approved"))["count"], 2)
+        self.assertEqual((await self.probe("Rejected"))["count"], 0)
+
+    async def test_read_probe_skips_form_controls_that_echo_a_value(self):
+        await self.page.set_content('<input value="Approved"><textarea>Approved</textarea><select><option>Approved</option></select>'
+                                    '<span data-testid="status">Approved</span>')
+        self.assertEqual((await self.probe("Approved"))["selector"], 'span[data-testid="status"]')
+
+    async def test_read_probe_is_case_sensitive_and_collapses_whitespace(self):
+        await self.page.set_content('<h1>APPROVED</h1><span data-testid="status">  Approved \n </span>')
+        self.assertEqual((await self.probe("Approved"))["selector"], 'span[data-testid="status"]')
+
+    async def test_read_probe_falls_back_to_structural_css_without_attributes(self):
+        await self.page.set_content('<p>intro</p><p>Approved</p>')
+        found = await self.probe("Approved")
+        self.assertEqual(found["selector"], "p:nth-of-type(2)")
+        self.assertEqual(await self.page.locator(found["selector"]).inner_text(), "Approved")

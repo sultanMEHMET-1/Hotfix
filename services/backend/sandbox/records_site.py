@@ -4,7 +4,8 @@
 Public sites cannot be modified, so write workflows are exercised here. State is in
 memory. Chaos Mode breaks the save button the same way the permit portal breaks its
 submit button. With hard=true it also adds decoys (a search box, "Save draft" and "Clear form"
-buttons) that a weak agent could use by mistake. GET /state shows the stored records and how many writes happened, so a
+buttons) that a weak agent could use by mistake. With read=true the saved value's test id is renamed
+(saved-value to result-value), so the selector that READS the result breaks while the form still works. GET /state shows the stored records and how many writes happened, so a
 test can prove repeated replays leave the same result. POST /reset clears everything.
 """
 
@@ -15,7 +16,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlsplit
 
 LOCK = threading.Lock()
-STATE = {"records": {}, "writes": 0, "chaos": False, "hard": False}
+STATE = {"records": {}, "writes": 0, "chaos": False, "hard": False, "read": False}
 
 PAGE = """<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><title>Record Editor</title>
@@ -35,7 +36,7 @@ input { display: block; width: 100%; box-sizing: border-box; padding: 8px; font-
 <label for="record-id">Record ID</label><input id="record-id" name="record_id" autocomplete="off" required>
 <label for="record-value">New value</label><input id="record-value" name="value" autocomplete="off" required>
 __DECOYS__<button id="save-btn" class="btn-primary" type="submit">Save record</button>
-<div id="result" hidden aria-live="polite"><span data-testid="saved-value" data-record="" data-value=""></span></div>
+<div id="result" hidden aria-live="polite"><span>Saved </span><span id="out-record" data-testid="saved-record"></span><span> = </span><span id="out-value" data-testid="__VALUE_ID__"></span></div>
 </form></main>
 <script>
 (() => {
@@ -66,9 +67,8 @@ __DECOYS__<button id="save-btn" class="btn-primary" type="submit">Save record</b
     const reply = await fetch('/records', {method: 'POST', body: JSON.stringify({
       record_id: document.querySelector('#record-id').value, value: document.querySelector('#record-value').value})});
     const saved = await reply.json();
-    const badge = document.querySelector('[data-testid="saved-value"]');
-    badge.dataset.record = saved.record_id; badge.dataset.value = saved.value;
-    badge.textContent = `Saved ${saved.record_id} = ${saved.value}`;
+    document.querySelector('#out-record').textContent = saved.record_id;
+    document.querySelector('#out-value').textContent = saved.value;
     document.querySelector('#result').hidden = false;
   });
   label(); if (chaos) breakButton();
@@ -83,7 +83,9 @@ DECOYS = ('<button type="button" data-action="draft" style="margin-top:18px;marg
 
 def render():
     page = PAGE.replace("__CHAOS__", "true" if STATE["chaos"] else "false")
-    return page.replace("__SEARCH__", SEARCH if STATE["hard"] else "").replace("__DECOYS__", DECOYS if STATE["hard"] else "")
+    value_id = "result-value" if STATE["read"] else "saved-value"
+    return (page.replace("__SEARCH__", SEARCH if STATE["hard"] else "").replace("__DECOYS__", DECOYS if STATE["hard"] else "")
+            .replace("__VALUE_ID__", value_id))
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -122,9 +124,10 @@ class Handler(BaseHTTPRequestHandler):
                 if path == "/chaos":
                     STATE["chaos"] = bool(data["enabled"])
                     STATE["hard"] = bool(data.get("hard", False))
-                    return self.reply(200, {"enabled": STATE["chaos"], "hard": STATE["hard"]})
+                    STATE["read"] = bool(data.get("read", False))
+                    return self.reply(200, {"enabled": STATE["chaos"], "hard": STATE["hard"], "read": STATE["read"]})
                 if path == "/reset":
-                    STATE.update(records={}, writes=0, chaos=False, hard=False)
+                    STATE.update(records={}, writes=0, chaos=False, hard=False, read=False)
                     return self.reply(200, {"status": "reset"})
         except (KeyError, ValueError, TypeError):
             return self.reply(400, {"error": "bad request"})

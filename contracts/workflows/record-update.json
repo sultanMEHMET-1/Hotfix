@@ -24,12 +24,12 @@
   ],
   "outputs": {
     "record_id": {
-      "field": "saved_value",
-      "read": "attr:data-record"
+      "field": "saved_record",
+      "read": "text"
     },
     "value": {
       "field": "saved_value",
-      "read": "attr:data-value"
+      "read": "text"
     }
   },
   "params_schema": {
@@ -57,10 +57,12 @@
     "additionalProperties": false,
     "properties": {
       "record_id": {
-        "type": "string"
+        "type": "string",
+        "description": "the record id shown after saving"
       },
       "value": {
-        "type": "string"
+        "type": "string",
+        "description": "the saved value shown after saving"
       }
     }
   },

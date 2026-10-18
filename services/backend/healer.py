@@ -12,6 +12,8 @@ from uuid import uuid4
 
 import sentry_sdk
 
+from pydantic import Field, create_model
+
 from contracts.api_types import HealEvidence
 from .config import BackendError
 
@@ -23,6 +25,8 @@ class Candidate:
     cost_usd: float | None = None
     duration_ms: float | None = None
     metrics: dict = field(default_factory=dict)
+    # For a read heal: the values the agent reported, which a successful replay must read back identically.
+    reported: dict | None = None
 
 
 def normalized(text):
@@ -70,13 +74,8 @@ def css_candidates(element):
     yield tag
 
 
-def selector_expression(element):
-    """Stable attributes first; structural CSS uses the same live node, never classes."""
-    return """(() => {
-      const target = document.evaluate(XPATH, document, null,
-        XPathResult.FIRST_ORDERED_NODE_TYPE, null).singleNodeValue;
-      if (!(target instanceof Element) || !target.isConnected) return null;
-      const matchesTarget = selector => {
+# Derive CSS for a located element: stable attributes first, then structural CSS. Never classes.
+DERIVE = """const matchesTarget = selector => {
         const matches = document.querySelectorAll(selector);
         return matches.length === 1 && matches[0] === target;
       };
@@ -100,9 +99,50 @@ def selector_expression(element):
         path = path ? `${part} > ${path}` : part;
         if (matchesTarget(path)) return path;
       }
-      return null;
-    })()""".replace("XPATH", json.dumps(element["x_path"])).replace(
+      return null;"""
+
+
+def selector_expression(element):
+    """Stable attributes first; structural CSS uses the same live node, never classes."""
+    script = """(() => {
+      const target = document.evaluate(XPATH, document, null,
+        XPathResult.FIRST_ORDERED_NODE_TYPE, null).singleNodeValue;
+      if (!(target instanceof Element) || !target.isConnected) return null;
+      """ + DERIVE + """
+    })()"""
+    return script.replace("XPATH", json.dumps(element["x_path"])).replace(
         "CANDIDATES", json.dumps(list(css_candidates(element))))
+
+
+def read_selector_expression(texts):
+    """Find the one deepest element whose visible text equals every reported text, then derive its CSS.
+
+    Form controls are skipped (they echo params), wrappers that only contain the match are dropped, and
+    text is compared with collapsed whitespace but case-sensitively.
+    """
+    script = """(() => {
+      const wanted = TEXTS;
+      const norm = text => (text || '').replace(/\\s+/g, ' ').trim();
+      const skip = new Set(['INPUT', 'TEXTAREA', 'SELECT', 'OPTION', 'SCRIPT', 'STYLE', 'NOSCRIPT']);
+      const hits = [...document.body.querySelectorAll('*')].filter(
+        node => !skip.has(node.tagName) && wanted.every(text => norm(node.innerText) === text));
+      const deepest = hits.filter(node => !hits.some(other => other !== node && node.contains(other)));
+      if (deepest.length !== 1) return {count: deepest.length};
+      const target = deepest[0];
+      const tag = target.localName;
+      const candidates = [];
+      for (const name of ['data-testid', 'data-test', 'data-action', 'data-field', 'id', 'name', 'aria-label']) {
+        const value = target.getAttribute(name);
+        if (value && !/[\\x00-\\x1f]/.test(value)) candidates.push(`${tag}[${name}=${JSON.stringify(value)}]`);
+      }
+      candidates.push(tag);
+      const selector = (() => {
+        """ + DERIVE.replace("CANDIDATES", "candidates") + """
+      })();
+      const attributes = Object.fromEntries([...target.attributes].map(attribute => [attribute.name, attribute.value]));
+      return {count: 1, selector, tag: target.tagName, attributes};
+    })()"""
+    return script.replace("TEXTS", json.dumps(list(texts), ensure_ascii=False))
 
 
 def extract_evidence(history: dict, workflow, failure):
@@ -211,11 +251,45 @@ async def close_browser(browser, *, deadline=None):
         raise
 
 
+async def read_candidate(browser, history, serialized, failure, text_keys, metrics):
+    """Turn the agent's reported values into a selector for the element that shows them, or refuse."""
+    structured = history.structured_output
+    reported = {key: " ".join(str(getattr(structured, key, "") or "").split()) for key in text_keys} if structured else {}
+    if not reported or not all(reported.values()):
+        raise BackendError("agent_no_result", "Browser Use did not report the values shown on the page")
+    cdp = await browser.get_or_create_cdp_session()
+    response = await cdp.cdp_client.send.Runtime.evaluate(
+        params={"expression": read_selector_expression(list(reported.values())), "returnByValue": True},
+        session_id=cdp.session_id)
+    found = response.get("result", {}).get("value") or {}
+    if found.get("count") != 1:
+        raise BackendError("ambiguous_element", "The reported values are not shown by exactly one element")
+    selector = found.get("selector")
+    # A selector that embeds a reported value would pass the canary and then break on any other input.
+    if not selector or selector == failure.expected_selector or any(value in selector for value in reported.values()):
+        raise BackendError("unresolved_element", "No unique replacement CSS selector was verified on the live page")
+    cost = metrics.get("cost_usd")
+    duration = history.total_duration_seconds() * 1000
+    evidence = HealEvidence(
+        action_type="read", history_step=max(len(serialized["history"]) - 1, 0), action_index=0,
+        node_name=found["tag"], attributes={str(k): str(v) for k, v in found["attributes"].items()},
+        reasoning=f"The one element whose visible text equals the reported {', '.join(reported)}")
+    return Candidate(selector, evidence, cost, duration if math.isfinite(duration) and duration >= 0 else None,
+                     metrics, reported)
+
+
 async def diagnose(settings, workflow, params, failure, *, deadline=None):
     key = os.getenv("GOOGLE_API_KEY") or os.getenv("GEMINI_API_KEY")
     model = os.getenv("GEMINI_MODEL")
     if not key or not model:
         raise BackendError("model_unconfigured", "Set GOOGLE_API_KEY and GEMINI_MODEL before live recovery")
+    read_fields = {output.field for output in workflow.outputs.values()}
+    reading = failure.failed_step in read_fields
+    text_keys = [key for key, output in workflow.outputs.items()
+                 if reading and output.field == failure.failed_step and output.read == "text"]
+    if reading and not text_keys:
+        # An attribute the agent cannot see gives nothing to anchor a repair to, so do not spend a run on it.
+        raise BackendError("ambiguous_element", "No visible text output identifies the element to repair")
     browser = None
     llm = None
     workdirs = [settings.backend / "state" / f"browser-{uuid4()}", settings.backend / "state" / f"agent-{uuid4()}"]
@@ -267,7 +341,10 @@ async def diagnose(settings, workflow, params, failure, *, deadline=None):
                        if workflow.mutates else
                        "Complete this read-only workflow using the supplied parameters. Do not modify data. ")
                     + "Use indexed DOM actions so interactions can be audited. "
-                    "If a login, captcha, or access wall blocks the task, stop and report failure; never try to get around it.")
+                    "If a login, captcha, or access wall blocks the task, stop and report failure; never try to get around it."
+                    + (" When you finish, report the result exactly as the page displays it, for: " + ", ".join(
+                        f"{key} ({workflow.output_schema.get('properties', {}).get(key, {}).get('description') or key})"
+                        for key in text_keys) + "." if reading else ""))
             agent = Agent(
                 task=task, llm=llm, browser_session=browser,
                 initial_actions=[{"navigate": {"url": failure.page_url, "new_tab": False}}],
@@ -276,6 +353,9 @@ async def diagnose(settings, workflow, params, failure, *, deadline=None):
                 max_failures=1, enable_planning=False, message_compaction=False,
                 llm_timeout=min(30, settings.agent_timeout),
                 file_system_path=str(workdirs[1]),
+                **({"output_model_schema": create_model("Reading", **{
+                    key: (str, Field(description=f"The {key} value shown on the page")) for key in text_keys})}
+                   if reading else {}),
             )
             with sentry_sdk.start_span(op="gen_ai.invoke_agent", name="invoke_agent Browser Use") as agent_span:
                 agent_span.set_data("gen_ai.agent.name", "Browser Use")
@@ -306,6 +386,8 @@ async def diagnose(settings, workflow, params, failure, *, deadline=None):
                 raise BackendError("agent_no_result", "Browser Use returned empty history")
             if any(result.get("error") for result in serialized["history"][-1].get("result", []) if result):
                 raise BackendError("agent_error", "Browser Use ended with an action error")
+            if reading:
+                return await read_candidate(browser, history, serialized, failure, text_keys, metrics)
             element, evidence = extract_evidence(serialized, workflow, failure)
             selector = captured.get((element["backend_node_id"], element["x_path"]))
             if not selector or selector == failure.expected_selector:

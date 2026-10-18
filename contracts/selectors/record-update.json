@@ -6,6 +6,7 @@
     "input_record_id": "#record-id",
     "input_value": "#record-value",
     "save_button": "#save-btn",
+    "saved_record": "[data-testid='saved-record']",
     "saved_value": "[data-testid='saved-value']"
   }
 }
