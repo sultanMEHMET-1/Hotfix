@@ -28,7 +28,7 @@ Instrument Sans for headings and the ratio (display), Space Grotesk for prose an
 
 ## Structure
 
-One page, top to bottom: a sticky frosted header (the Portfolio's glass recipe: a faint tint, a blur, a hairline; the theme control is one glass icon button that flips between a moon and a sun), "Selected:" and the site name with the workflow's goal, one control panel (workflow switcher, the Live switch and mock scenarios, the run action and its status), the measurement (fast replay and agent repair on one shared bar scale, durations in ms, s, then m s, the agent's cost only, and the ratio as the hero), the corrections ledger, and the run log. Corrections are git-style diffs with the evidence always visible in one plain sentence; there is nothing to expand. No tabs, no nested cards, no eyebrow labels. Square ink markers, never round dots.
+One page, top to bottom: a sticky frosted header (the Portfolio's glass recipe: a faint tint, a blur, a hairline; the theme control is a bare icon that flips between a moon and a sun), "Selected:" and the site name with the workflow's goal, one control panel (workflow switcher, the Live switch and mock scenarios, the run action and its status), the measurement (fast replay and agent repair on one shared bar scale, durations in ms, s, then m s, the agent's cost only, and the ratio as the hero), the corrections ledger, and the run log. Corrections are git-style diffs with the evidence always visible in one plain sentence; there is nothing to expand. No tabs, no nested cards, no eyebrow labels. Square ink markers, never round dots.
 
 ## Motion
 
