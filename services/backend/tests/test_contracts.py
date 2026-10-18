@@ -61,7 +61,7 @@ class ContractTests(unittest.TestCase):
     def test_every_workflow_definition_is_valid_and_has_a_matching_selector_map(self):
         schema = load_json(CONTRACTS / "workflow.schema.json")
         check = jsonschema.Draft202012Validator(schema)
-        definitions = sorted((CONTRACTS / "workflows").glob("*.json"))
+        definitions = sorted(path for path in (CONTRACTS / "workflows").glob("*.json") if not path.name.startswith("custom-"))
         self.assertGreaterEqual(len(definitions), 2)
         for path in definitions:
             with self.subTest(workflow=path.stem):

@@ -114,24 +114,42 @@ def selector_expression(element):
         "CANDIDATES", json.dumps(list(css_candidates(element))))
 
 
-def read_selector_expression(texts, budget_ms=5000):
+def read_selector_expression(texts, budget_ms=5000, forgiving=False):
     """Find the one deepest element whose visible text equals every reported text, then derive its CSS.
 
     Form controls are skipped (they echo params), wrappers that only contain the match are dropped, and
-    text is compared with collapsed whitespace but case-sensitively.
+    text is compared with collapsed whitespace but case-sensitively. `forgiving` (used when creating a workflow, never
+    when repairing one) also accepts a short element that merely contains the text, and breaks a tie by taking the one
+    match inside a heading, or else the one whose text is shortest; the result then carries `text`, the element's own full text.
     """
     script = """(() => {
       const wanted = TEXTS;
       const norm = text => (text || '').replace(/\\s+/g, ' ').trim();
       const skip = new Set(['INPUT', 'TEXTAREA', 'SELECT', 'OPTION', 'SCRIPT', 'STYLE', 'NOSCRIPT']);
       const started = performance.now();
-      const hits = [];
+      const hits = [], loose = [];
       for (const node of document.body.querySelectorAll('*')) {
         // innerText forces layout, so a huge page must not stall the recovery until its deadline.
         if (performance.now() - started > BUDGET) return {count: -1};
-        if (!skip.has(node.tagName) && wanted.every(text => norm(node.innerText) === text)) hits.push(node);
+        // A hidden duplicate (a sticky header, a template) cannot be read by the runner, which waits for visibility.
+        if (node.getClientRects().length === 0) continue;
+        if (skip.has(node.tagName)) continue;
+        const own = norm(node.innerText);
+        if (wanted.every(text => own === text)) hits.push(node);
+        else if (FORGIVING && wanted.every(text => own.includes(text) && own.length <= text.length * 3 + 30)) loose.push(node);
       }
-      const deepest = hits.filter(node => !hits.some(other => other !== node && node.contains(other)));
+      const found = hits.length || !FORGIVING ? hits : loose;
+      let deepest = found.filter(node => !found.some(other => other !== node && node.contains(other)));
+      if (FORGIVING && deepest.length > 1) {
+        const headed = deepest.filter(node => node.closest('h1'));
+        if (headed.length === 1) deepest = headed;
+      }
+      if (FORGIVING && deepest.length > 1) {
+        // Several elements mention the value: the one whose own text is closest to it is the value itself.
+        const shortest = Math.min(...deepest.map(node => norm(node.innerText).length));
+        const closest = deepest.filter(node => norm(node.innerText).length === shortest);
+        if (closest.length === 1) deepest = closest;
+      }
       if (deepest.length !== 1) return {count: deepest.length};
       const target = deepest[0];
       const tag = target.localName;
@@ -145,9 +163,10 @@ def read_selector_expression(texts, budget_ms=5000):
         """ + DERIVE.replace("CANDIDATES", "candidates") + """
       })();
       const attributes = Object.fromEntries([...target.attributes].map(attribute => [attribute.name, attribute.value]));
-      return {count: 1, selector, tag: target.tagName, attributes};
+      return {count: 1, selector, tag: target.tagName, attributes, text: norm(target.innerText)};
     })()"""
-    return script.replace("TEXTS", json.dumps(list(texts), ensure_ascii=False)).replace("BUDGET", str(int(budget_ms)))
+    return (script.replace("TEXTS", json.dumps(list(texts), ensure_ascii=False)).replace("BUDGET", str(int(budget_ms)))
+            .replace("FORGIVING", "true" if forgiving else "false"))
 
 
 def extract_evidence(history: dict, workflow, failure):

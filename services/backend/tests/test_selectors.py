@@ -74,6 +74,22 @@ class SelectorBrowserTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual((await self.page.evaluate(read_selector_expression(["Approved"], budget_ms=-1)))["count"], -1)
         self.assertEqual((await self.probe("Approved"))["count"], 1)
 
+    async def test_read_probe_ignores_hidden_duplicates(self):
+        await self.page.set_content('<span id="sticky" style="display:none">Approved</span><span data-testid="status">Approved</span>')
+        found = await self.probe("Approved")
+        self.assertEqual((found["count"], found["selector"]), (1, 'span[data-testid="status"]'))
+
+    async def test_forgiving_probe_prefers_the_heading_then_the_closest_text_and_leaves_repairs_strict(self):
+        await self.page.set_content('<h1><span id="title">Marie Curie</span></h1><a href="#">Marie Curie</a><p>Marie Curie</p>')
+        strict = await self.probe("Marie Curie")
+        self.assertEqual(strict["count"], 3)  # a repair still refuses the ambiguity
+        forgiving = await self.page.evaluate(read_selector_expression(["Marie Curie"], forgiving=True))
+        self.assertEqual((forgiving["count"], forgiving["selector"]), (1, 'span[id="title"]'))
+        await self.page.set_content('<a id="a">Download Python 3.15.0</a><a id="b">Python 3.15.0</a>')
+        shortest = await self.page.evaluate(read_selector_expression(["3.15.0"], forgiving=True))
+        self.assertEqual((shortest["selector"], shortest["text"]), ('a[id="b"]', "Python 3.15.0"))
+        self.assertEqual((await self.probe("3.15.0"))["count"], 0)
+
     async def test_read_probe_ignores_wrappers_that_only_contain_the_match(self):
         await self.page.set_content('<div id="outer"><div id="inner"><span data-testid="status">Approved</span></div></div>')
         self.assertEqual((await self.probe("Approved"))["selector"], 'span[data-testid="status"]')
