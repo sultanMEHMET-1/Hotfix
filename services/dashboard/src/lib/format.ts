@@ -5,6 +5,11 @@ export function formatMs(n: number): string {
   return `${msFormatter.format(Math.round(n))}ms`;
 }
 
+/** Same as formatMs, split into a value and unit for display with breathing room between them. */
+export function formatMsParts(n: number): { value: string; unit: string } {
+  return { value: msFormatter.format(Math.round(n)), unit: "ms" };
+}
+
 /** 0.0381 -> "$0.0381" (always 4 decimals); null -> "Unknown". */
 export function formatUsd(n: number | null): string {
   return n === null ? "Unknown" : `$${n.toFixed(4)}`;
