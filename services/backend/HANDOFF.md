@@ -2,7 +2,7 @@
 
 State of `services/backend` for a teammate or agent picking it up. The run guide is
 [README.md](README.md), the rules for agents are [AGENTS.md](AGENTS.md), and the project brief is
-[CLAUDE.md](CLAUDE.md). Everything below is merged into `main` (PR #1) unless it says it is a proposal.
+[CLAUDE.md](CLAUDE.md). M1 to M3 are merged into `main` (PR #1). Everything else below is on branch `codex/browser-use-recovery`, delivered as a PR for the user to merge.
 
 ## Status
 
@@ -11,12 +11,15 @@ State of `services/backend` for a teammate or agent picking it up. The run guide
 | M1 single-field recovery, M2 transactional multi-field recovery, M3 failure cooldown and finalized `heal_records` | Shipped, tested, merged |
 | Real runner and portal (Person 1) | Merged; speaks the agreed CLI; verified end to end |
 | Dashboard (Person 3) | Merged; verified in a real browser against the real backend |
+| Generic runner and per-workflow maps | `contracts/workflows/<id>.json` + `contracts/selectors/<id>.json`; the runner navigates to the map's `target_url`; two workflows (`permit-application`, `record-update`) on one backend |
+| Read healing | A broken read selector is repaired from the values the agent saw, verified by replay and the canary |
+| Crash recovery, pruning | `state/inflight-<wf>.json` marker restored at startup; `runs/` keeps the newest 50 |
 | Write workflows (local sites only) | Shipped with a guard, a sandbox site, and a login-wall fail-fast |
-| Sentry | Verified live in project `mender-backend`; failed-recovery alert created |
+| Sentry | Tracing, Logs, AI agent monitoring, Profiling (backend) and Tracing + Session Replay (dashboard, project `mender-dashboard`), verified live; failed-recovery alert created |
 | Model comparison | 8 Gemini models, 90 paid trials; default is now `gemini-3.5-flash-lite` (see below) |
-| Cooldown field `cooldown_remaining_s` | Proposal only, needs the contracts owner (see `proposals/`) |
+| Cooldown field `cooldown_remaining_s` | In the contract, backend and dashboard (countdown) |
 
-Test status at the last run: backend 103 tests (15 opt-in skipped), dashboard 45, runner 6, `ruff` clean.
+Test status at the last run: backend 138 tests (25 opt-in skipped; the browser and real-runner suites add 15 more when enabled), dashboard 55, runner 12, `ruff` clean.
 
 The endpoint builds the shared response model, dumps it once, and validates that same JSON with both
 the Pydantic model and the JSON Schema before returning it. All four contract fields are enabled
@@ -32,11 +35,10 @@ ran the agent, only when every invocation reported them, and never to joined req
 | [recovery.py](recovery.py) | Application-owned tasks, one baseline, three-invocation loop, ordered progress, deadline, final canary, rollback, record finalization, cooldown cache, measurements |
 | [healer.py](healer.py) | Lazy SDK imports, Gemini, executed-history grounding, live CSS capture, browser and Google client cleanup, per-run directory cleanup, agent span attributes |
 | [runner.py](runner.py) | CLI subprocess, separate stdout/stderr, per-operation and deadline timeouts, process-group termination, raw output validation, owned artifacts. No selector locks |
-| [store.py](store.py) | POSIX locks, validated atomic writes, backups, higher-version restoration |
-| [config.py](config.py) | Workflow definitions (steps, goal, schemas, canary masking, `mutates`), settings, `write_allowed`, runner interpreter default |
+| [store.py](store.py) | One store and lock per workflow, validated atomic writes, backups, higher-version restoration, the in-flight marker and its startup recovery |
+| [config.py](config.py) | Loads definitions from `contracts/workflows/` (shared `WorkflowDefinition`), `selectors_for(workflow)`, settings, `write_allowed`, `prune_runs`, runner interpreter default |
 | [reset.py](reset.py) | Restore from a backup or from git `HEAD` under the same lock |
 | [terminal.py](terminal.py) | Rich rendering without emojis; original records and telemetry preserved |
-| [workflows/](workflows) | `permit-application.json`, the demo definition |
 | [sandbox/records_site.py](sandbox/records_site.py) | Local stateful site for write workflows (Chaos Mode, decoys with `hard`, `/state`, `/reset`) |
 | [rehearse.py](rehearse.py), [rehearse_ui.py](rehearse_ui.py), [bench_models.py](bench_models.py) | Paid tools: API demo loops, real-browser dashboard loops, model comparison |
 | [proposals/](proposals) | Changes proposed to other owners (not applied) and a paste-ready message for Person 1 |
@@ -68,10 +70,10 @@ ran the agent, only when every invocation reported them, and never to joined req
    a unique tag, or live structural targeting. An agent completion statement is never sufficient. No mutable
    class or XPath is stored.
 8. Write each candidate atomically at the next version. Replay under the lock already held;
-   `Runner.execute` must never reacquire it. A valid later-step failure retains provisional progress;
+   `Runner.execute` must never reacquire it. Reads are ordered after the steps (a read field sits at position `len(steps) + index`). A valid later-step failure retains provisional progress;
    same or earlier failures abort. Three attempts exhausted also abort.
 9. Final replay output must pass JSON Schema. Run a separate canary, validate raw output, then compare after
-   explicit volatile-field exclusions. Commit only after all checks pass. Non-demo definitions may omit a canary.
+   explicit volatile-field exclusions. Commit only after all checks pass. Every definition requires a canary.
 10. Any terminal failure restores the entire baseline if a patch was installed, as a new version greater than
     every provisional version. No installed patch means no restoration write. Rollback failure blocks service.
 11. Successful waiters replay with their own parameters and run IDs; failed flights return the failure to
@@ -86,11 +88,25 @@ ran the agent, only when every invocation reported them, and never to joined req
 13. Emit one measurement record per recovery. Independent background Sentry transactions retain the
     originating trace ID and can finish after the owner request closes.
 14. A workflow with `mutates: true` runs only when the selector map's `target_url` host is loopback or in
-    `MENDER_WRITE_HOSTS`, and is refused before the runner starts. This relies on the runner actually
-    navigating to that `target_url`; the permit runner does not yet (see open items).
+    `MENDER_WRITE_HOSTS`, and is refused before the runner starts. The generic runner navigates to that same
+    `target_url`, so the guard checks the page that is actually visited.
 15. Operator endpoints (`/api/v1/admin/reset`, `/api/v1/status`) accept only loopback peers and refuse any
-    request carrying forwarding headers. Reset restores git `HEAD` selectors as a new version under the
-    exclusive lock, refuses during a recovery, and clears the cooldown.
+    request carrying forwarding headers. Reset takes `{workflow?}` (one or all), restores git `HEAD` selectors
+    as a new version under that workflow's exclusive lock, refuses (409) only the workflow that is recovering,
+    and clears only that workflow's cooldown.
+16. Locks, stores and cooldown are per workflow; a recovery on one site never blocks another's fast path.
+    `configuration_error` stays global. Startup validates every map against its definition (all step and
+    output fields present) and blocks with a clear status otherwise.
+17. Read healing (`healer.read_candidate`): the agent returns the visible values through `output_model_schema`;
+    a JS probe finds the unique deepest element showing exactly them (no INPUT, TEXTAREA, SELECT or OPTION;
+    case kept, whitespace collapsed); the selector comes from the shared `DERIVE` template, attributes first,
+    never classes, and is rejected if it embeds a reported value; the replay must read back the reported values;
+    then the canary decides. A field whose outputs are all attributes is refused before the agent runs.
+18. Crash recovery: `mark_inflight` writes `state/inflight-<wf>.json` (pointing at the baseline) before the
+    first write; `clear_inflight` runs after commit, rollback, or when nothing was installed. At startup, under
+    the exclusive lock, a leftover marker restores its baseline as a new higher version, logs it and sends a
+    Sentry event; a failed rollback keeps the marker, a marker without its backup blocks the backend. Plain
+    `baseline-*.json` files are never auto-restored. `runs/` is pruned to the newest 50 at startup only.
 
 All selector writers must follow the lock protocol, including reset. Outside editors do not participate.
 Graceful shutdown drains active tasks. Client and proxy timeouts must cover at least 240 seconds plus initial
@@ -125,6 +141,13 @@ sanitized messages, schema validation, review fixes), [test_writes.py](tests/tes
 sandbox site), [test_real_runner.py](tests/test_real_runner.py) (real runner and portal),
 [test_selectors.py](tests/test_selectors.py) (real DOM derivation), [test_m1.py](tests/test_m1.py) (regression
 coverage for artifacts, cleanup, rollback failure, atomic writes, tracing, reset and the import boundary).
+New on this branch: [test_workflows.py](tests/test_workflows.py) (two workflows in one backend: routing, lock
+isolation, per-workflow cooldown and reset, 409 only for the recovering workflow, startup consistency),
+[test_read_heal.py](tests/test_read_heal.py) (read healing rules), [test_crash_recovery.py](tests/test_crash_recovery.py)
+(marker lifecycle, startup restore, failed-rollback retention, pruning), and the runner's `test_execute.py`.
+Mutations proven caught by a named test: lock isolation, reset clearing every cooldown, reset 409 scope, read
+positions, a value embedded in a selector, the unique-element requirement, the attribute-only refusal, the
+replay-versus-reported check, canary-only acceptance, marker lifecycle, startup recovery and pruning.
 
 Adversarial mutations (isolated process, source untouched), each caught by a named test: no-op cooldown,
 expiry extended on hits, a key ignoring the failed step, a key ignoring the selector map, a key that includes
@@ -151,13 +174,13 @@ samples (not percentiles):
 ## Integration with the other services
 
 `origin/phase-1` (portal and runner) and `origin/mender-dashboard` are merged. Cross-owner edits were made at
-the backend owner's request, each in its own commit so the owner can review or revert it:
+the backend owner's request, each in its own commit so the owner can review or revert it. Earlier (PR #1):
 
 1. **Runner** `services/runner/execute.py`: accepts the agreed `--workflow --params --run-id` (plus
    `--sentry-trace`, `--baggage`) and writes `runs/<run_id>/failure_payload.json` and `failure.png`; the old flags
    still work. It returns `permit_id` (the portal echoes the submitted id) so the canary can tell a wrong repair.
-2. **Contracts** `contracts/selectors.json`: `target_url` is the real portal address (was `portal.example.gov`,
-   which made the backend reject every failure as `unexpected_page`). Only that field changed.
+2. **Contracts**: `target_url` is the real portal address (was `portal.example.gov`, which made the backend
+   reject every failure as `unexpected_page`).
 3. **Runner** `reset_demo.py`: resets through the backend's locked endpoint when one is listening; edits the file
    itself only when the connection is refused (a timeout or reset from a live backend is an error, not a bypass).
 4. **Dashboard**: sends the backend's request contract `{workflow, params}` (it sent `{workflow_id}` and got 422);
@@ -166,10 +189,15 @@ the backend owner's request, each in its own commit so the owner can review or r
    label are hidden while a new run is in flight; rejected records are "never installed"; trace links use
    `/explore/traces/trace/`; a Reset selectors button (live mode) calls the admin endpoint and reports a blocked backend.
 
-The real runner is reached in tests through a thin wrapper
-([fixtures/real_runner_shim.py](tests/fixtures/real_runner_shim.py)) that only adds `--selectors` and
-`--target-url` for the temp root. Full-stack proof (no wrapper): real portal, real runner, backend under uvicorn,
-real Gemini, real dashboard in Playwright, 3 of 3 loops including the Reset button.
+On this branch (also separate commits): the **generic runner** (`execute.py` runs any definition and opens the
+map's `target_url`, so the old permit-only code and the test shims `real_runner_shim.py` and `sandbox_runner.py` are
+gone), the **contracts layout** (definitions in `contracts/workflows/`, one map per workflow in
+`contracts/selectors/`, `WorkflowDefinition`/`WorkflowSummary`, `cooldown_remaining_s`), and the **dashboard**
+(workflow picker, per-workflow reset, "n/a" instead of fixture numbers in live mode, cooldown countdown, Sentry
+tracing and Session Replay). Tests build their roots with `tests/support.py::make_root`, which copies only the
+schemas and one workflow's definition and map. Full-stack proof: real portal, real runner, backend under uvicorn,
+real Gemini, real dashboard in Playwright, repeated loops; one backend served `permit-application` (heal 13.9 s,
+$0.0067) and `record-update` (fast 419 ms, heal 16 s, $0.0056) with independent resets.
 
 ## Write workflows (local sites only)
 
@@ -178,35 +206,44 @@ Reads work on any reachable site; writes only on sites we control, because publi
 `127.0.0.1.evil.com` and `user@host` URLs are refused). A real-browser chaos heal on the sandbox site (mocked
 agent) wrote exactly twice (replay and canary); a paid run wrote three times (agent, replay, canary), which is
 why writes need an idempotent action and a repeat-safe canary. A login or access wall ends as `agent_blocked`
-after the three-invocation cap. Public sites may block headless browsers; that is untested.
+after the three-invocation cap. Public sites may block headless browsers; that is untested. Read healing was proven live: with the saved value's
+test id renamed, a paid heal took 17.6 s and $0.0065 and produced `span[data-testid="result-value"]` as an
+`action_type: read` record.
 
 ## Sentry
 
-Project `mender-backend`, org `tanish-misra`. The DSN is only in the git-ignored `services/backend/.env`.
-Verified by querying the project:
+Projects `mender-backend` and `mender-dashboard`, org `tanish-misra`. The DSNs are only in git-ignored files
+(`services/backend/.env`, `services/dashboard/.env.local`). The run guide describes what each product sends;
+this is what was verified by querying the projects, and what it changed in the build:
 
-- **Traces.** One trace per request: `http.server` > `workflow.execute` > `healer.recovery` > `healer.diagnose` >
-  `gen_ai.invoke_agent` > four `gen_ai.chat` (the SDK's Google integration) > `http.client`, then `healer.patch` >
-  `runner.execute` replays, plus the initial failed `runner.execute`. A heal trace had 28 spans and 36 logs.
-- **Agent fields.** `invoke_agent Browser Use` carries agent name, model, and input and output tokens.
-  A `healer.summary` child span carries flat `recovery.cost_usd`, `recovery.agent_duration_ms`,
-  `recovery.total_tokens` (reliable values only), `recovery.invocations` and `recovery.success` for dashboards. They are
-  on a child span because Sentry did not expose attributes set on the transaction's root span: a first attempt put them
-  there and the span data came back empty in Sentry, so a test now captures the transaction payload. Verified live:
-  `tags[recovery.cost_usd,number]` (0.03084075, identical to the response), `recovery.agent_duration_ms` and
-  `recovery.invocations` query correctly. `recovery.total_tokens` and `recovery.success` are set in code and covered
-  by the payload test, but Sentry's attribute list still did not offer them in repeated checks over about 45 minutes
-  (cause not found), so token charts use the agent span's `gen_ai.usage.*` attributes instead.
-- **Issues and noise.** One failed recovery used to open six issues because every ERROR log line became one. With
-  `LoggingIntegration(event_level=None)` only our fingerprinted events become issues (plus the Google client error,
-  grouped into one). Verified: a new failed recovery added one event to our issue and opened no new issue. The
-  `log.exception` sites capture explicitly so they still reach Sentry.
-- **Alert.** "Mender: agent recovery failed" (id 6187285) emails the team when a new or reappearing issue has tag
-  `tier:agent`. The expected runner failure from Chaos Mode is `tier:deterministic`, so a normal demo does not
-  fire it (checked: the filter matches the failed-recovery issues and not the runner issue).
+- **Tracing, distributed.** One dashboard click is one trace: `ui.action.click` and the browser fetch,
+  `http.server` > `workflow.execute` > `healer.recovery` > `healer.diagnose` > `gen_ai.invoke_agent` > four
+  `gen_ai.chat` > `http.client`, then `healer.patch` > `runner.execute` replays. Browser and backend spans share
+  one trace id. The click span and the fetch span are siblings under the pageload, not parent and child.
+- **AI agent monitoring.** `invoke_agent Browser Use` carries agent name, model and token counts (`gen_ai.*`).
+  The spans showed about four sequential model calls of about 5 s each, which led to the model comparison
+  below: the default model heals in about 11 s for about half a cent, 6x cheaper and 2.2x faster than before.
+- **Profiling.** `profile_lifecycle="trace"` with a sample rate of 1.0; backend spans carry `profiler.id`.
+- **Logs.** Backend logs are sent as Sentry Logs next to the spans (a heal trace had 36).
+- **Session Replay** (dashboard, `VITE_SENTRY_REPLAY_RATE`, 0.1 by default, 1 while demoing, always on error).
+  A replay is linked to the backend issue `MENDER-BACKEND-1` through the shared trace.
+- **Runner phase timings** (`runner.<phase>_ms` span data from the runner's stderr) showed that the fast path
+  takes about 367 ms end to end but only about 151 ms is runner work (launch 83, goto 6, steps 52, reads 9);
+  importing Playwright and starting and stopping its driver alone costs about 197 ms. The next optimization is
+  a warm, long-lived driver. It is not built.
+- **Summary span.** `healer.summary` carries flat `recovery.cost_usd`, `recovery.agent_duration_ms`,
+  `recovery.total_tokens` (reliable values only), `recovery.invocations` and `recovery.success`. They are on a
+  child span because Sentry did not expose attributes set on the transaction's root span. Custom attributes are
+  queried as `tags[name,number]`. `cost_usd` (0.03084075, identical to the response), `agent_duration_ms` and
+  `invocations` query correctly; `total_tokens` and `success` never became queryable (cause not found), so token
+  charts use `gen_ai.usage.*`.
+- **Issues and noise.** One failed recovery used to open six issues because every ERROR log line became one.
+  With `LoggingIntegration(event_level=None)` only our fingerprinted events become issues; the `log.exception`
+  sites capture explicitly. Verified: a new failed recovery added one event to our issue.
+- **Alert.** "Mender: agent recovery failed" (id 6187285) emails the team when a new or reappearing issue has
+  tag `tier:agent`. Chaos Mode's runner failure is `tier:deterministic` and does not fire it.
 - **Dashboard.** The plugin cannot create dashboards; build it in the UI from the queries in the run guide.
-- No dropped events. Ingestion lags a minute or two, so counts queried right after a run look low. The trace
-  links the dashboard renders resolve to real traces. Not covered: Session Replay on the portal.
+- No dropped events. Ingestion lags a minute or two.
 
 ## Choosing a Gemini model
 
@@ -285,28 +322,32 @@ test that fails without the fix, 1 was fixed in part, and 1 is documented:
 - Partly fixed: the operator endpoints no longer accept a test-only host and refuse forwarded requests, but the
   "loopback only" check is still satisfied by the Vite dev proxy. Do not run the dev server with `--host` or a
   tunnel while the backend is live.
-- Documented, not fixed: the runner ignores the selector map's `target_url`, so the write guard is only as good as
-  the runner. Needs Person 1 (the message in `proposals/message-person1.md` asks for it).
+- Since fixed: the runner now navigates to the selector map's `target_url`, so the write guard checks the page that
+  is actually visited.
 
 ## Open items and limits
 
-- **Cooldown field.** A cooldown hit looks like any failure; `proposals/cooldown-remaining-field.md` proposes
-  `cooldown_remaining_s` so the dashboard can show "retry in N s". Needs the contracts owner, then three patches.
-- **Runner and sites.** The runner is permit-specific and ignores `target_url`; "any website" needs a generic
-  runner (Person 1) and a selector map per workflow (one `selectors.json` means one workflow per backend today).
-  Reading a result element back is not agent-healable. Public sites may block headless browsers.
-- **Contracts owner review.** PR #1 merged without it, including the `target_url` edit and two open questions:
-  `agent_duration_ms` as the sum of SDK step durations, and empty `heal_records` omitted instead of sent as `[]`.
-- **Dashboard.** The agent time and cost cards show fixture placeholders until the first real heal in a browser
-  session (history is in memory). Reset is a button, but Chaos Mode is still turned off on the portal.
-- **Sentry.** No dashboard was created (no tool for it); no Session Replay on the portal.
-- **Backend.** No crash recovery: a forced kill after a provisional write can leave it installed (use reset and
-  restart). Synchronous filesystem work cannot be preempted, so the 240 s ceiling is not a guarantee against an OS
-  stall. POSIX locks and process groups, one uvicorn worker, and an in-memory cooldown are demo constraints.
-  Subprocess output is buffered in memory with no size limit and there is no load testing. Iframes and dynamic
-  or duplicate labels may fail grounding. `runs/` failure screenshots are git-ignored but never pruned.
+- **Warm driver.** Playwright import and driver start cost about 197 ms of the 367 ms fast path. A persistent
+  driver is the measured next optimization; not built.
+- **Public sites.** Reads work on any reachable site in principle; sites that block headless browsers or put the
+  data behind a login or captcha fail by design (`agent_blocked`). Untested against real public sites.
+- **Read healing limits.** It needs a visible `text` output on the field (attribute-only outputs refuse). When
+  every output of a field is constant across params, only uniqueness, the intersection rule and the canary
+  protect against a wrong element.
+- **Contracts owner review.** PR #1 and this branch's contract changes (per-workflow maps, `WorkflowDefinition`,
+  `WorkflowSummary`, `cooldown_remaining_s`) were made at the backend owner's instruction and have not been
+  reviewed by the contracts owner. Two decisions to record: `agent_duration_ms` is the sum of SDK step
+  durations, and empty `heal_records` are omitted (equivalent to `[]`).
+- **Sentry.** No dashboard was created (the plugin cannot); `recovery.total_tokens` and `recovery.success` are not
+  queryable. In the trace tree the click span and the fetch span are siblings.
+- **Backend.** Synchronous filesystem work cannot be preempted, so the 240 s ceiling is not a guarantee against an
+  OS stall. POSIX locks and process groups, one uvicorn worker, and an in-memory cooldown are demo constraints.
+  `configuration_error` is global, not per workflow. Subprocess output is buffered in memory with no size
+  limit and there is no load testing. Iframes and dynamic or duplicate labels may fail grounding.
 - **Cooldown fingerprint.** A site whose failure DOM snippet contains dynamic content (a token or a clock) makes
   every failure look new, so the cooldown never hits. Safe, but it defeats the feature.
+- **Dashboard.** History is in memory, so the first real heal replaces the "n/a" cards only for that session.
+  Reset is a button, but Chaos Mode is still turned off on the portal.
 
 If restoration or cleanup fails, inspect the logged reason, preserve the baseline, stop owned resources, reset
-under the same lock, and restart before retrying.
+under the same lock, and restart before retrying (a restart alone also retries it through the in-flight marker).

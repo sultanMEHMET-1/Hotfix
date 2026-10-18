@@ -14,16 +14,20 @@ These instructions supplement the repository and global AGENTS.md instructions.
 ## Current scope and boundaries
 
 - M1 (single field), M2 (transactional multi-field recovery) and M3 (failure cooldown,
-  finalized `heal_records`, reset and status endpoints) are shipped and merged into `main`
-  (PR #1). New work needs an explicit instruction. Proposals in `proposals/` are not applied.
+  finalized `heal_records`, reset and status endpoints) are merged into `main` (PR #1). The
+  generic runner, per-workflow maps, read healing, crash recovery, `cooldown_remaining_s`,
+  the workflow picker and the Sentry products are on branch `codex/browser-use-recovery`
+  (PR for the user to merge; never merge it yourself). New work needs an explicit instruction.
 - Backend source, tests, fixtures, and docs belong under `services/backend/`. The portal,
   runner, dashboard, and `contracts/` belong to other owners. Changes there need an explicit
   instruction, go in their own commit, and are for the owner to review. Runtime selector
-  updates and version bumps by the healer are always allowed.
+  updates and version bumps by the healer are always allowed. The user has authorized
+  contract and cross-folder changes for the current branch; ask again for anything new.
 - Treat the shared JSON schemas and models as authoritative. Import shared models instead of
   duplicating them. A contract change needs all three owners; write a proposal instead.
-- Keep workflow behavior site-agnostic. Ordered steps, the top-level `goal`, and the optional
-  `mutates` flag belong to backend-owned workflow definitions. Selector `fields` is a lookup.
+- Keep workflow behavior site-agnostic. Ordered steps, outputs, the `goal`, a required canary and
+  the optional `mutates` flag belong to the definitions in `contracts/workflows/`, the only place
+  they live. Each workflow has its own map in `contracts/selectors/<id>.json`; `fields` is a lookup.
 - Keep `.env` and generated `state/` artifacts out of Git. Never print API keys or DSNs or
   include local secrets in examples, fixtures, logs, commits, or reviews.
 - Use the global rigorous-coding, deliberate-thinking, ponytail, and adversarial-verification
@@ -38,7 +42,7 @@ These instructions supplement the repository and global AGENTS.md instructions.
 - Unique field grounding using executed action/result/element evidence and workflow order.
   Agent completion text cannot authorize a selector change.
 - One locked baseline, accumulated atomic patches, runner replay, and rollback of the whole
-  transaction on terminal failure. The demo workflow requires a canary.
+  transaction on terminal failure. Every workflow requires a canary. One lock per workflow.
 - Recovery owns its task and deadline. Request cancellation must not cancel it. Waiters
   shield the task and replay with their own params and fresh run IDs.
 - At most three agent invocations, a 240-second recovery budget with 30 seconds reserved for
@@ -58,11 +62,16 @@ These instructions supplement the repository and global AGENTS.md instructions.
   ambiguous evidence.
 - Writes: a workflow with `mutates: true` runs only on loopback or `MENDER_WRITE_HOSTS`
   hosts, refused before the runner starts. Never bypass a login or captcha.
+- Read healing: the agent reports the visible values, the backend finds the one element showing them,
+  rejects selectors that embed a value, and requires the replay to read back the same values before the
+  canary decides. Attribute-only read fields are refused up front.
+- Crash recovery: the in-flight marker is written with the baseline and cleared only when the map is
+  consistent; plain `baseline-*.json` backups are never auto-restored. `runs/` keeps the newest 50.
 - Operator endpoints (`/api/v1/admin/reset`, `/api/v1/status`) stay loopback only.
 - Sentry: only our fingerprinted events become issues (`LoggingIntegration(event_level=None)`;
   logs stay as Sentry Logs). Keep the `tier` tag (`deterministic` or `agent`), the stable
-  fingerprints, the `gen_ai.*` agent span attributes, and the flat `recovery.*` attributes on the
-  `healer.summary` span (reliable values only). The failed-recovery alert filters on `tier:agent`.
+  fingerprints, the `gen_ai.*` agent span attributes, the `runner.<phase>_ms` span data, profiling,
+  and the flat `recovery.*` attributes on the `healer.summary` span (reliable values only). The failed-recovery alert filters on `tier:agent`.
 - Terminal output uses Rich without emojis. Keep cleanup in the renderer; preserve original
   log records, literal selectors, errors, and Sentry context.
 
