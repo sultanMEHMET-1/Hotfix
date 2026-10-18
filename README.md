@@ -77,7 +77,7 @@ Four read-only workflows run against real sites with no setup beyond the venv:
   Travel book's title and price on Books to Scrape, and the first quote under the love tag on Quotes to Scrape).
 
 They show the fast path on sites we do not own. Their live checks are opt-in and free:
-`MENDER_PUBLIC_TEST=1 ... -m unittest services.backend.tests.test_public_sites`. You cannot use Chaos Mode on a site
+`MENDER_PUBLIC_TEST=1 ... -m unittest services.backend.tests.test_public_sites`. You cannot break a site
 you do not own, and writes are never allowed on them.
 
 **Create your own.** The dashboard's **+ New** button opens a separate create mode: pick a site, then describe what to read in a

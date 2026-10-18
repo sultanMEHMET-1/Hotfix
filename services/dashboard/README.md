@@ -43,4 +43,4 @@ Set `VITE_SENTRY_DSN` (a JavaScript project) and the dashboard starts `@sentry/r
 
 Without a DSN, nothing is sent. Tests pin their own environment (`vite.config.ts`), so they never read `.env.local` or send events.
 
-A browser rehearsal of the whole demo through this UI (reset, fast run, Chaos Mode, heal, fast run) lives in `services/backend/rehearse_ui.py`.
+A browser rehearsal of the whole demo through this UI (reset, fast run, break the portal, heal, fast run) lives in `services/backend/rehearse_ui.py`.

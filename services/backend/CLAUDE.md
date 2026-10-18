@@ -3,7 +3,7 @@
 ## What this is
 Mender is a hackathon project (LA Hacks, AI track, 24 hours, software only). It turns an API-less web portal into a fast JSON endpoint that repairs itself when the site changes.
 - A deterministic Playwright runner drives a mock legacy portal using CSS selectors from contracts/selectors/<workflow>.json. No LLM on the fast path. Any workflow in contracts/workflows/ runs the same way.
-- When the portal changes (Chaos Mode) a selector breaks and the runner fails with a failure artifact.
+- When the portal changes (Break something) a selector breaks and the runner fails with a failure artifact.
 - The backend catches that, spawns a Browser Use agent (Gemini) to complete the workflow on the changed page, derives a CSS selector for the broken field from the recorded history, verifies it by replaying the runner, patches the selector map, and returns the result.
 - Sentry (tracing, logs, AI agent monitoring, profiling, and Session Replay on the dashboard) wraps everything. It is a judged prize track, so Sentry must be load-bearing, not decoration.
 
@@ -13,7 +13,7 @@ Mender is a hackathon project (LA Hacks, AI track, 24 hours, software only). It 
 - Branch: codex/browser-use-recovery. Push only to it. Never merge to main without a fresh explicit instruction. (PR #1 was merged into main at the user's explicit instruction, merge commit a09569c; that was a one-time authorization.)
 
 ## Prize tracks the demo must support
-Sentry (Best Use of Sentry), Browser Use, MLH Best Use of Gemini API. Cognition/Devin PR step is a stretch goal, not built. The demo: run a lookup (fast, about 300 ms, no LLM), click Chaos Mode on the mock portal, rerun, watch the dashboard switch to "Browser Use Agent Engaged", get correct JSON back, then show the Sentry trace, agent spans and the selector diff. It must be repeatable five times in a row. Prefer simple and deterministic over clever.
+Sentry (Best Use of Sentry), Browser Use, MLH Best Use of Gemini API. Cognition/Devin PR step is a stretch goal, not built. The demo: run a lookup (fast, about 300 ms, no LLM), click Break something on the mock portal, rerun, watch the dashboard switch to "Browser Use Agent Engaged", get correct JSON back, then show the Sentry trace, agent spans and the selector diff. It must be repeatable five times in a row. Prefer simple and deterministic over clever.
 
 ## Architecture decisions (settled, do not relitigate)
 - Runner CLI is site-agnostic: python services/runner/execute.py --workflow <id> --params '<json>' --run-id <uuid> --contracts <root>/contracts (optional --sentry-trace, --baggage). Success: exit 0, one JSON object. Failure: non-zero exit, runs/<run_id>/failure_payload.json and failure.png. Endpoint: POST /api/v1/run-workflow with {"workflow": "...", "params": {...}}. No permit-specific code in the backend.

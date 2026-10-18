@@ -43,7 +43,7 @@ ran the agent, only when every invocation reported them, and never to joined req
 | [config.py](config.py) | Loads definitions from `contracts/workflows/` (shared `WorkflowDefinition`), `selectors_for(workflow)`, settings, `write_allowed`, `prune_runs`, runner interpreter default |
 | [reset.py](reset.py) | Restore from a backup or from git `HEAD` under the same lock |
 | [terminal.py](terminal.py) | Rich rendering without emojis; original records and telemetry preserved |
-| [sandbox/records_site.py](sandbox/records_site.py) | Legacy inventory price desk: seeded table, live shared updates and last-save time, Chaos Mode redesign, `hard` decoys, independent `read` drift; `/reset` restores seeds |
+| [sandbox/records_site.py](sandbox/records_site.py) | Legacy inventory price desk: seeded table, live shared updates and last-save time, click-to-break Chaos (three variants each for the button, Record ID box and saved value, decoys, a separate sign-in wall button, capped at two broken fields); `/reset` restores seeds |
 | [rehearse.py](rehearse.py), [rehearse_ui.py](rehearse_ui.py), [bench_models.py](bench_models.py) | Paid tools: API demo loops, real-browser dashboard loops, model comparison |
 | [proposals/](proposals) | Changes proposed to other owners (not applied) and a paste-ready message for Person 1 |
 
@@ -421,7 +421,19 @@ drafts are in memory and expire after 15 minutes; custom workflows are local fil
 - **Cooldown fingerprint.** A site whose failure DOM snippet contains dynamic content (a token or a clock) makes
   every failure look new, so the cooldown never hits. Safe, but it defeats the feature.
 - **Dashboard.** History is in memory, so the first real heal replaces the "n/a" cards only for that session.
-  Reset is a button, but Chaos Mode is still turned off on the portal.
+  Reset is a button, but Restore site is still clicked on the portal (or `POST /chaos {"enabled": false}`).
+- **Speed card baseline.** The "N times faster than an agent on every run" figure uses a real agent run of the same
+  workflow from the session when there is one (a repair run, which also verifies and commits, so it flatters Mender a
+  little). Before that it falls back to per-workflow constants in `BenchmarkSummary.tsx` taken from our own trials, so
+  they do not move with anything the viewer does. A live agent-only run that measures the task from scratch is not built
+  (roughly half a day, paid, needs a new loopback endpoint).
+- **Typed input only where there is typed text.** Only Wikipedia (and created workflows with a typed parameter) has an
+  input box. Books, Quotes and python.org click fixed links, so there is nothing to swap. A `param` on a click step
+  (click the link whose text is the value) would fix Books and Quotes; it touches the runner, the contract, the
+  healer's matching and creation, and is not built.
+- **Permit portal break.** Break something on the portal was checked live with the status badge and the permit box
+  broken together: both repaired in 27.7 s and committed. The other variants are covered by browser checks and unit
+  tests, not by a paid repair each.
 
 If restoration or cleanup fails, inspect the logged reason, preserve the baseline, stop owned resources, reset
 under the same lock, and restart before retrying (a restart alone also retries it through the in-flight marker).
