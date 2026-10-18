@@ -23,7 +23,7 @@ from a sentence (PR #7, stacked on #6) are open pull requests at the time of wri
 | Model comparison | 8 Gemini models, 90 paid trials; default is now `gemini-3.5-flash-lite` (see below) |
 | Cooldown field `cooldown_remaining_s` | In the contract, backend and dashboard (countdown) |
 
-Test status at the last run: backend 198 tests (with the browser, real-runner and public-site flags on, only the 5 paid Gemini tests skip; the default run skips 51), runner 12, dashboard 81, `ruff` clean.
+Test status at the last run: backend 201 tests (with the browser, real-runner and public-site flags on, only the 5 paid Gemini tests skip; the default run skips 51), runner 12, dashboard 81, `ruff` clean.
 
 The endpoint builds the shared response model, dumps it once, and validates that same JSON with both
 the Pydantic model and the JSON Schema before returning it. All four contract fields are enabled

@@ -29,7 +29,7 @@ changes a value, and four read-only workflows on real and practice sites (see "P
 | Path | What | Owner |
 | --- | --- | --- |
 | `contracts/` | Shared schemas, types, fixtures, workflow definitions, per-workflow selector maps | all three, changes need agreement |
-| `services/portal/` | Mock legacy permit portal with Chaos Mode (stdlib server) | Person 1 |
+| `services/portal/` | Mock legacy permit portal with a Break something control (stdlib server) | Person 1 |
 | `services/runner/` | Generic deterministic Playwright runner, setup scripts, demo reset | Person 1 |
 | `services/backend/` | Recovery engine, workflow creation, API, Sentry, the inventory desk demo site, tools, tests | Person 2 |
 | `services/dashboard/` | React dashboard: run, see how it was served, corrections, create from a sentence | Person 3 |
@@ -102,14 +102,14 @@ workflows are local files, not a database.
 
 1. Pick **Permit portal** (the picker lists what the backend can run), then **Trigger workflow**: the fast path,
    about 0.4 s, "Deterministic Playwright".
-2. On the portal, click **Chaos Mode** (its submit button loses its id and moves into a modal).
+2. On the portal, click **Break something**: each click changes the page in a new way (the submit button moves into a dialog or gets a new id, an input box gets a new id, the status badge's test id is renamed, or decoy buttons appear), and a note says what. At most two fields are broken at once.
 3. **Trigger workflow** again: the runner fails, the dashboard switches to "Browser Use Agent Engaged" with a live
    clock, and about 15 s later returns the correct JSON. The **Corrections** list shows a committed record (old and
    new selector as a diff, and what the agent did) and the agent's cost. Trigger once more: the fast path again, on
    the repaired selector, and the earlier correction stays in the list.
 4. Open **View Sentry trace** for the request: the browser click, the agent's model calls, and the selector change.
 5. Before the next run click **Reset selectors** (restores the committed selectors; the repaired one only matches
-   Chaos Mode's page) and turn Chaos Mode off on the portal.
+   the broken page) and click **Restore site** on the portal.
 
 For the write demo, start the inventory site and open `http://127.0.0.1:3100/records` beside the dashboard:
 
@@ -164,7 +164,7 @@ are in [services/backend/HANDOFF.md](services/backend/HANDOFF.md#sentry).
 
 | Where | Command |
 | --- | --- |
-| Backend (default, no model calls; 198 tests, the browser, real-runner, public-site and paid ones skip) | `uv run --no-project --python 3.12 --with-requirements services/backend/requirements-test.txt python -B -m unittest discover -s services/backend/tests` |
+| Backend (default, no model calls; 201 tests, the browser, real-runner, public-site and paid ones skip) | `uv run --no-project --python 3.12 --with-requirements services/backend/requirements-test.txt python -B -m unittest discover -s services/backend/tests` |
 | Runner (12 tests) | `cd services/runner && ../../.venv/bin/python -m unittest test_execute` |
 | Dashboard (84 tests) | `cd services/dashboard && npm run typecheck && npm test` |
 
