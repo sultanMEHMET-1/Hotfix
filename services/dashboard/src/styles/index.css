@@ -1,0 +1,94 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --color-surface: 255 255 255;
+    --color-surface-subtle: 244 246 248;
+    --color-line: 221 226 231;
+    --color-ink: 22 33 44;
+    --color-ink-muted: 91 107 120;
+    --color-ink-faint: 138 151 163;
+    --color-accent: 47 111 237;
+    --color-success: 15 142 96;
+    --color-success-bg: 227 244 236;
+    --color-warning: 158 99 11;
+    --color-warning-bg: 250 237 217;
+    --color-danger: 190 48 48;
+    --color-danger-bg: 252 229 229;
+  }
+
+  /* System dark preference, unless the user has explicitly chosen light in-app. */
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --color-surface: 22 29 46;
+      --color-surface-subtle: 14 19 32;
+      --color-line: 38 47 68;
+      --color-ink: 236 240 247;
+      --color-ink-muted: 148 160 184;
+      --color-ink-faint: 98 110 136;
+      --color-accent: 96 165 250;
+      --color-success: 52 211 153;
+      --color-success-bg: 20 50 44;
+      --color-warning: 240 180 65;
+      --color-warning-bg: 54 40 16;
+      --color-danger: 241 112 112;
+      --color-danger-bg: 54 22 24;
+    }
+  }
+
+  /* Explicit in-app choice of dark, overriding system light. */
+  :root[data-theme="dark"] {
+    --color-surface: 22 29 46;
+    --color-surface-subtle: 14 19 32;
+    --color-line: 38 47 68;
+    --color-ink: 236 240 247;
+    --color-ink-muted: 148 160 184;
+    --color-ink-faint: 98 110 136;
+    --color-accent: 96 165 250;
+    --color-success: 52 211 153;
+    --color-success-bg: 20 50 44;
+    --color-warning: 240 180 65;
+    --color-warning-bg: 54 40 16;
+    --color-danger: 241 112 112;
+    --color-danger-bg: 54 22 24;
+  }
+
+  html {
+    scroll-behavior: smooth;
+  }
+
+  body {
+    @apply bg-surface-subtle text-ink antialiased;
+    font-family: "Hanken Grotesk", ui-sans-serif, system-ui, sans-serif;
+  }
+
+  ::selection {
+    @apply bg-success-bg text-success;
+  }
+}
+
+@layer utilities {
+  .tabular-nums {
+    font-variant-numeric: tabular-nums;
+  }
+
+  .scrollbar-slim::-webkit-scrollbar {
+    width: 8px;
+  }
+  .scrollbar-slim::-webkit-scrollbar-thumb {
+    background: rgb(var(--color-line));
+    border-radius: 99px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    transition-duration: 0.001ms !important;
+    scroll-behavior: auto !important;
+  }
+}

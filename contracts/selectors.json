@@ -1,6 +1,6 @@
 {
   "workflow_id": "permit-application",
-  "target_url": "https://portal.example.gov/permits/apply",
+  "target_url": "http://127.0.0.1:3000/permits/apply",
   "version": 1,
   "fields": {
     "input_permit_id": "#permit-id",
