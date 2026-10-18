@@ -29,13 +29,18 @@ export interface ControlRowProps {
   /** Editable inputs for the selected workflow (public sites only); the Trigger waits until none is empty. */
   inputs?: { name: string; label: string; value: string; example: string }[];
   onInputChange?: (name: string, value: string) => void;
+  /** Create mode: only the picker and the Live switch show, since there is nothing to run yet. */
+  creating?: boolean;
+  onNew?: () => void;
+  /** A created workflow is selected: offer to delete it. */
+  onDelete?: () => void;
 }
 
 const SECONDARY =
   "min-h-[44px] rounded-panel border-[1.5px] border-ink bg-surface px-4 font-display text-sm transition-colors hover:bg-surface-subtle disabled:cursor-not-allowed disabled:opacity-50";
 
 export default function ControlRow({
-  phase, result, scenario, onScenarioChange, onTrigger, mocksOn, onToggleMocks, workflows, workflowId, onWorkflowChange, onReset, inputs = [], onInputChange,
+  phase, result, scenario, onScenarioChange, onTrigger, mocksOn, onToggleMocks, workflows, workflowId, onWorkflowChange, onReset, inputs = [], onInputChange, creating = false, onNew, onDelete,
 }: ControlRowProps) {
   const running = phase === "running-fast" || phase === "running-healing";
   const state = badgeState(phase, result);
@@ -48,7 +53,7 @@ export default function ControlRow({
   return (
     <section aria-label="Run controls" className="border-y-[1.5px] border-ink">
       <div className="flex flex-wrap items-center justify-between gap-x-8 gap-y-3 border-b border-line py-3">
-        <WorkflowPicker workflows={workflows} selected={workflowId} onSelect={onWorkflowChange} disabled={running} />
+        <WorkflowPicker workflows={workflows} selected={workflowId} onSelect={onWorkflowChange} disabled={running} onNew={onNew} creating={creating} />
 
         <div className="flex flex-wrap items-center gap-3">
           <Tooltip label={mocksOn ? "Use real backend" : "Use sample data"} align="start">
@@ -72,13 +77,13 @@ export default function ControlRow({
                 </Tooltip>
               ))}
             </div>
-          ) : (
+          ) : creating ? null : (
             <ResetButton disabled={running} workflow={workflowId} onReset={onReset} />
           )}
         </div>
       </div>
 
-      {inputs.length > 0 && (
+      {!creating && inputs.length > 0 && (
         <form
           aria-label="Workflow input"
           className="flex flex-col gap-4 border-b border-line py-4"
@@ -108,7 +113,7 @@ export default function ControlRow({
         </form>
       )}
 
-      <div className="flex flex-col gap-4 py-5 sm:flex-row sm:items-center sm:gap-8">
+      {!creating && <div className="flex flex-col gap-4 py-5 sm:flex-row sm:items-center sm:gap-8">
         <button
           type="button"
           onClick={onTrigger}
@@ -124,9 +129,10 @@ export default function ControlRow({
             <span className="text-sm text-ink-muted">{state === "healing" ? "Browser Use agent" : executionPathLabel(result!)}</span>
           )}
         </div>
-      </div>
+        {onDelete && <button type="button" onClick={onDelete} disabled={running} className={`${SECONDARY} sm:ml-auto`}>Delete workflow</button>}
+      </div>}
 
-      {output.length > 0 && (
+      {!creating && output.length > 0 && (
         <dl aria-label="Result" className="grid gap-x-8 gap-y-3 border-t border-line py-5 sm:grid-cols-[auto_1fr]">
           {output.map(([key, value]) => (
             <div key={key} className="contents">

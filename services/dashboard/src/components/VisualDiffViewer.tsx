@@ -26,6 +26,8 @@ export default function VisualDiffViewer({ phase, result, history, workflowId, s
   const groups = history.filter((h) => h.workflowId === workflowId && h.startedAt > since && (h.response.heal_records?.length ?? 0) > 0);
   const latestChangedNothing = !healing && !failedRequest && result !== null && (result.heal_records?.length ?? 0) === 0 && result.status !== "failed";
 
+ if (groups.length === 0 && !healing && !failedRequest && result === null) return null;
+
   return (
     <section aria-labelledby="corrections-title" className="mt-14">
       <div className="flex flex-col gap-1 sm:flex-row sm:items-end sm:justify-between">

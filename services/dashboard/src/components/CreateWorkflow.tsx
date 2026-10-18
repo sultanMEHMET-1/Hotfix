@@ -1,9 +1,9 @@
 import { useEffect, useRef, useState } from "react";
 import type { WorkflowSummary } from "@contracts/api_types";
-import { createDraft, deleteWorkflow, keepDraft, type DraftPreview } from "../api/client";
+import { createDraft, keepDraft, type DraftPreview } from "../api/client";
 import { useElapsed } from "../hooks/useElapsed";
 import { formatDuration, formatUsd } from "../lib/format";
-import { isCreated, type PublicSite } from "../lib/workflowLabel";
+import type { PublicSite } from "../lib/workflowLabel";
 
 const SITE_NAME: Record<PublicSite, string> = {
   wikipedia: "Wikipedia", python: "python.org", books: "Books to Scrape", quotes: "Quotes to Scrape",
@@ -39,18 +39,14 @@ function stepSentence(step: DraftPreview["steps"][number]): string {
 }
 
 export interface CreateWorkflowProps {
-  /** The public site the selected workflow reads. */
+  /** The public site the new workflow reads. The parent remounts this panel when it changes, so text and draft start fresh. */
   site: PublicSite;
-  /** The selected workflow, so a created one can be deleted from here. */
-  selectedId: string;
-  /** A run is in flight: saving or deleting would change the selected workflow under it, so wait. */
-  locked?: boolean;
+  onSiteChange: (site: PublicSite) => void;
   onKept: (workflow: WorkflowSummary) => void;
-  onDeleted: (id: string) => void;
 }
 
 /** Describe a read-only task in a sentence; the backend builds, tests and previews a workflow, and the user keeps or discards it. */
-export default function CreateWorkflow({ site, selectedId, locked = false, onKept, onDeleted }: CreateWorkflowProps) {
+export default function CreateWorkflow({ site, onSiteChange, onKept }: CreateWorkflowProps) {
   const [text, setText] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -90,25 +86,28 @@ export default function CreateWorkflow({ site, selectedId, locked = false, onKep
     }
   };
 
-  const remove = async () => {
-    setBusy(true);
-    setError(null);
-    try {
-      await deleteWorkflow(selectedId);
-      onDeleted(selectedId);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
-    } finally {
-      setBusy(false);
-    }
-  };
-
   return (
     <section aria-labelledby="create-title" className="mt-12">
       <h2 id="create-title" className="text-xl">Create a workflow from a sentence</h2>
       <p className="mt-2 max-w-[62ch] text-base text-ink-muted">
-        Describe what to read on {SITE_NAME[site]}. Mender builds the workflow, tests it twice on the real site, and shows you what it made.
+        Pick a site and describe what to read. Mender builds the workflow, tests it twice on the real site, and shows you what it made. Nothing runs until you save it.
       </p>
+      <div className="mt-5 flex flex-col sm:flex-row" role="group" aria-label="Site">
+        {(Object.keys(SITE_NAME) as PublicSite[]).map((s) => (
+          <button
+            key={s}
+            type="button"
+            disabled={busy}
+            onClick={() => s !== site && onSiteChange(s)}
+            aria-pressed={s === site}
+            className={`-mt-[1.5px] min-h-[44px] border-[1.5px] border-ink px-4 text-left font-display text-sm first:mt-0 disabled:cursor-not-allowed disabled:opacity-50 sm:-ml-[1.5px] sm:mt-0 sm:first:ml-0 ${
+              s === site ? "bg-ink font-semibold text-ground" : "bg-surface text-ink-muted hover:bg-surface-subtle hover:text-ink"
+            }`}
+          >
+            {SITE_NAME[s]}
+          </button>
+        ))}
+      </div>
 
       <div className="mt-5 flex flex-col gap-2" role="group" aria-label="Example sentences that work">
         <span className="text-sm text-ink-muted">Try one that is known to work</span>
@@ -179,25 +178,13 @@ export default function CreateWorkflow({ site, selectedId, locked = false, onKep
           </div>
           {draft.warnings.length > 0 && <p className="pb-4 text-sm text-warning">{draft.warnings.join(" ")}</p>}
           <div className="flex flex-wrap gap-3 border-t border-line py-5">
-            <button type="button" onClick={keep} disabled={busy || locked} className={PRIMARY}>Save workflow</button>
+            <button type="button" onClick={keep} disabled={busy} className={PRIMARY}>Save workflow</button>
             <button type="button" onClick={() => setDraft(null)} disabled={busy} className={SECONDARY}>Discard</button>
           </div>
         </div>
       )}
 
-      {isCreated(selectedId) && !draft && (
-        <div className="mt-8 flex flex-wrap items-center gap-4 border-t border-line pt-5">
-          <span className="text-base text-ink-muted">This workflow was created from a sentence.</span>
-          <button type="button" onClick={remove} disabled={busy || locked} className={SECONDARY}>Delete workflow</button>
-        </div>
-      )}
-
-      <ul className="mt-8 flex list-none flex-col gap-1.5 p-0 text-sm text-ink-muted">
-        <li>Reads only. Anything that edits, logs in, buys or posts is refused before the model runs.</li>
-        <li>Wikipedia, python.org and two practice sites only. Each creation costs about a cent and takes under a minute.</li>
-        <li>Content that changes (news, rankings) can fail the repair check later. A person confirms every preview.</li>
-        <li>Pages behind a login or captcha are refused, never bypassed.</li>
-      </ul>
+      <p className="mt-8 text-sm text-ink-muted">Reads only, on these four sites. Edits, logins and payments are refused.</p>
     </section>
   );
 }

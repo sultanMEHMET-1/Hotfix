@@ -80,7 +80,7 @@ They show the fast path on sites we do not own. Their live checks are opt-in and
 `MENDER_PUBLIC_TEST=1 ... -m unittest services.backend.tests.test_public_sites`. You cannot use Chaos Mode on a site
 you do not own, and writes are never allowed on them.
 
-**Create your own.** With any of those four selected, the dashboard has a box for describing what to read in a
+**Create your own.** The dashboard's **+ New** button opens a separate create mode: pick a site, then describe what to read in a
 sentence, with one-click example sentences that were each run for real and built a working workflow ("open the
 article for Marie Curie and tell me its heading"). The backend plans it, runs the agent once on the real site, turns
 the recorded typing and clicking into a workflow, proves it by replaying it with the real runner on two different
@@ -166,7 +166,7 @@ are in [services/backend/HANDOFF.md](services/backend/HANDOFF.md#sentry).
 | --- | --- |
 | Backend (default, no model calls; 198 tests, the browser, real-runner, public-site and paid ones skip) | `uv run --no-project --python 3.12 --with-requirements services/backend/requirements-test.txt python -B -m unittest discover -s services/backend/tests` |
 | Runner (12 tests) | `cd services/runner && ../../.venv/bin/python -m unittest test_execute` |
-| Dashboard (85 tests) | `cd services/dashboard && npm run typecheck && npm test` |
+| Dashboard (84 tests) | `cd services/dashboard && npm run typecheck && npm test` |
 
 With `MENDER_REAL_RUNNER=1 MENDER_BROWSER_TEST=1 MENDER_PUBLIC_TEST=1` and the live requirements, only the 5 paid
 Gemini tests skip. All flags and costs are in [services/backend/README.md](services/backend/README.md#tests-and-tools).

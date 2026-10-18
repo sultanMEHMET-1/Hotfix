@@ -20,7 +20,7 @@ describe("App", () => {
     expect(screen.queryByText("Idle")).toBeNull();
     expect(screen.getAllByRole("status")[0]).toBeEmptyDOMElement();
     expect(screen.getByText("Trigger workflow")).toBeInTheDocument();
-    expect(screen.getAllByText("No runs yet").length).toBeGreaterThan(0);
+    expect(screen.queryByText("Corrections")).toBeNull();
   });
 
   it("runs the fast path and shows a success run-log row", async () => {

@@ -15,9 +15,8 @@ describe("CreateWorkflow (mock mode)", () => {
 
   const setup = () => {
     const onKept = vi.fn();
-    const onDeleted = vi.fn();
-    render(<CreateWorkflow site="wikipedia" selectedId="wikipedia-article" onKept={onKept} onDeleted={onDeleted} />);
-    return { onKept, onDeleted };
+    render(<CreateWorkflow site="wikipedia" onSiteChange={vi.fn()} onKept={onKept} />);
+    return { onKept };
   };
 
   it("needs a real sentence before it can create, and shows the limits up front", () => {
@@ -27,7 +26,7 @@ describe("CreateWorkflow (mock mode)", () => {
     fireEvent.change(screen.getByLabelText("What should it read?"), { target: { value: "hi" } });
     expect(button).toBeDisabled();
     expect(screen.getByText(/Reads only/)).toBeInTheDocument();
-    expect(screen.getByText(/Wikipedia, python.org and two practice sites only/)).toBeInTheDocument();
+    expect(screen.getByText(/on these four sites/)).toBeInTheDocument();
   });
 
   it("offers sentences that are known to work, and a click fills the box without running anything", () => {
@@ -40,7 +39,7 @@ describe("CreateWorkflow (mock mode)", () => {
   });
 
   it("builds a click-only preview for the practice sites", async () => {
-    render(<CreateWorkflow site="books" selectedId="books-travel-first-book" onKept={vi.fn()} onDeleted={vi.fn()} />);
+    render(<CreateWorkflow site="books" onSiteChange={vi.fn()} onKept={vi.fn()} />);
     fireEvent.change(screen.getByLabelText("What should it read?"), { target: { value: "Open the Travel category and report the first book price" } });
     fireEvent.click(screen.getByRole("button", { name: "Create workflow" }));
     await flush();
@@ -77,16 +76,6 @@ describe("CreateWorkflow (mock mode)", () => {
     expect(screen.queryByRole("button", { name: "Save workflow" })).toBeNull();
     expect(onKept).not.toHaveBeenCalled();
   });
-
-  it("offers delete only for a workflow that was created, and removes it", async () => {
-    const onDeleted = vi.fn();
-    const { rerender } = render(<CreateWorkflow site="python" selectedId="python-latest-release" onKept={vi.fn()} onDeleted={onDeleted} />);
-    expect(screen.queryByRole("button", { name: "Delete workflow" })).toBeNull();
-    rerender(<CreateWorkflow site="python" selectedId="custom-python-demo-0001" onKept={vi.fn()} onDeleted={onDeleted} />);
-    fireEvent.click(screen.getByRole("button", { name: "Delete workflow" }));
-    await flush();
-    expect(onDeleted).toHaveBeenCalledWith("custom-python-demo-0001");
-  });
 });
 
 describe("CreateWorkflow (live mode shows the backend's own words)", () => {
@@ -97,7 +86,7 @@ describe("CreateWorkflow (live mode shows the backend's own words)", () => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(
       JSON.stringify({ detail: { code: "not_read_only", message: "Only requests that read information can be created" } }),
       { status: 422, headers: { "Content-Type": "application/json" } })));
-    render(<CreateWorkflow site="wikipedia" selectedId="wikipedia-article" onKept={vi.fn()} onDeleted={vi.fn()} />);
+    render(<CreateWorkflow site="wikipedia" onSiteChange={vi.fn()} onKept={vi.fn()} />);
     fireEvent.change(screen.getByLabelText("What should it read?"), { target: { value: "edit the Alan Turing article" } });
     fireEvent.click(screen.getByRole("button", { name: "Create workflow" }));
     expect(await screen.findByRole("alert")).toHaveTextContent("Only requests that read information can be created");
@@ -107,40 +96,55 @@ describe("CreateWorkflow (live mode shows the backend's own words)", () => {
 describe("the page and the helpers", () => {
   afterEach(() => { cleanup(); setUseMocks(true); });
 
-  it("offers creation only on the two public sites", async () => {
+  const open = async () => {
     vi.useFakeTimers();
     render(<App />);
     await act(async () => { await vi.advanceTimersByTimeAsync(10); });
+  };
+
+  it("keeps running and creating apart: + New has no Trigger, and a workflow has no create panel", async () => {
+    await open();
     expect(screen.queryByText("Create a workflow from a sentence")).toBeNull();
-    fireEvent.click(screen.getByRole("button", { name: "Wikipedia" }));
+    fireEvent.click(screen.getByRole("button", { name: "Quotes" }));
+    expect(screen.getByRole("button", { name: "Trigger workflow" })).toBeInTheDocument();
+    expect(screen.queryByText("Create a workflow from a sentence")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "+ New" }));
     expect(screen.getByText("Create a workflow from a sentence")).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: /Inventory desk/ }));
+    expect(screen.queryByRole("button", { name: "Trigger workflow" })).toBeNull();
+    expect(screen.getByRole("button", { name: "Quotes to Scrape" })).toHaveAttribute("aria-pressed", "true");
+    fireEvent.click(screen.getByRole("button", { name: "Permit portal" }));
+    expect(screen.getByRole("button", { name: "Trigger workflow" })).toBeInTheDocument();
     expect(screen.queryByText("Create a workflow from a sentence")).toBeNull();
     vi.useRealTimers();
   });
 
-  it("starts fresh when the selected workflow moves to another site", async () => {
-    vi.useFakeTimers();
-    render(<App />);
-    await act(async () => { await vi.advanceTimersByTimeAsync(10); });
-    fireEvent.click(screen.getByRole("button", { name: "Wikipedia" }));
+  it("starts fresh when the site is changed inside create mode", async () => {
+    await open();
+    fireEvent.click(screen.getByRole("button", { name: "+ New" }));
     fireEvent.change(screen.getByLabelText("What should it read?"), { target: { value: "Open the article for Marie Curie" } });
     fireEvent.click(screen.getByRole("button", { name: "Create workflow" }));
     await flush();
     expect(screen.getByRole("button", { name: "Save workflow" })).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: "Books" }));
+    fireEvent.click(screen.getByRole("button", { name: "Books to Scrape" }));
     expect(screen.queryByRole("button", { name: "Save workflow" })).toBeNull();
     expect((screen.getByLabelText("What should it read?") as HTMLTextAreaElement).value).toBe("");
-    expect(screen.getByText(/Describe what to read on Books to Scrape/)).toBeInTheDocument();
     vi.useRealTimers();
   });
 
-  it("cannot save or delete while a run is in flight", async () => {
-    vi.useFakeTimers();
-    const { rerender } = render(<CreateWorkflow site="wikipedia" selectedId="custom-wikipedia-x-1" locked onKept={vi.fn()} onDeleted={vi.fn()} />);
-    expect(screen.getByRole("button", { name: "Delete workflow" })).toBeDisabled();
-    rerender(<CreateWorkflow site="wikipedia" selectedId="custom-wikipedia-x-1" onKept={vi.fn()} onDeleted={vi.fn()} />);
-    expect(screen.getByRole("button", { name: "Delete workflow" })).toBeEnabled();
+  it("saving selects the new workflow in run mode, and deleting it returns to the first", async () => {
+    await open();
+    fireEvent.click(screen.getByRole("button", { name: "+ New" }));
+    fireEvent.change(screen.getByLabelText("What should it read?"), { target: { value: "Open the article for Marie Curie" } });
+    fireEvent.click(screen.getByRole("button", { name: "Create workflow" }));
+    await flush();
+    fireEvent.click(screen.getByRole("button", { name: "Save workflow" }));
+    await flush();
+    expect(screen.queryByText("Create a workflow from a sentence")).toBeNull();
+    expect(screen.getByRole("button", { name: "Trigger workflow" })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Delete workflow" }));
+    await flush();
+    expect(screen.queryByRole("button", { name: "Delete workflow" })).toBeNull();
+    expect((await listWorkflows()).some((w) => isCreated(w.id))).toBe(false);
     vi.useRealTimers();
   });
 
