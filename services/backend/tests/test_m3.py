@@ -344,6 +344,32 @@ class M3Tests(M2Harness):
         self.assertNotIn("heal_records", payload)
         self.assertEqual(self.selectors(), self.baseline)
 
+    async def test_recovery_summary_span_carries_flat_numbers_for_dashboards(self):
+        """The numbers must be on a child span: Sentry does not index a transaction's own root span data."""
+        import sentry_sdk
+        from sentry_sdk.integrations.logging import LoggingIntegration
+        from sentry_sdk.transport import Transport
+        envelopes = []
+
+        class Memory(Transport):
+            def capture_envelope(self, envelope):
+                envelopes.append(envelope)
+        sentry_sdk.init(dsn="https://public@example.invalid/1", transport=Memory(), traces_sample_rate=1.0,
+                        integrations=[LoggingIntegration(event_level=None)])
+        self.addCleanup(sentry_sdk.init)
+        self.app.state.diagnose = self.diagnose
+        with patch("services.backend.main.sentry_sdk.init"):
+            self.assertEqual((await self.request()).json()["status"], "healed")
+        sentry_sdk.flush()
+        transactions = [item.payload.json for envelope in envelopes for item in envelope.items
+                        if item.headers.get("type") == "transaction"]
+        spans = [span for transaction in transactions for span in transaction.get("spans", [])
+                 if span.get("op") == "healer.summary"]
+        self.assertEqual(len(spans), 1, [t.get("transaction") for t in transactions])
+        data = spans[0]["data"]
+        self.assertAlmostEqual(data["recovery.cost_usd"], 0.002)
+        self.assertEqual((data["recovery.invocations"], data["recovery.total_tokens"], data["recovery.success"]), (2, 24, True))
+
     # Safety
 
     async def test_error_messages_are_safe_to_show(self):

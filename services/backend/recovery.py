@@ -303,12 +303,14 @@ class Recovery:
                         outcome.agent_duration_ms = totals["agent_duration_ms"]
                     sentry_sdk.set_context("recovery.measurements", report)
                     span.set_data("recovery.measurements", report)
-                    # Flat numeric attributes so a Sentry dashboard can chart them. Reliable values only.
-                    for name, key in (("cost_usd", "cost_usd"), ("agent_duration_ms", "agent_duration_ms"),
-                                      ("total_tokens", "total_tokens")):
-                        if totals.get(key + "_complete") and key in totals:
-                            span.set_data(f"recovery.{name}", totals[key])
-                    span.set_data("recovery.invocations", len(metrics))
+                    # Flat numeric attributes so a Sentry dashboard can chart them. They live on a child span because
+                    # Sentry indexes child span data for queries but not a transaction's own root span. Reliable values only.
+                    with sentry_sdk.start_span(op="healer.summary", name="Recovery summary") as summary:
+                        for name in ("cost_usd", "agent_duration_ms", "total_tokens"):
+                            if totals.get(name + "_complete") and name in totals:
+                                summary.set_data(f"recovery.{name}", totals[name])
+                        summary.set_data("recovery.invocations", len(metrics))
+                        summary.set_data("recovery.success", outcome.error is None)
                     sentry_sdk.set_tag("heal_success", committed)
                     span.set_status("ok" if outcome.error is None else "internal_error")
                     tokens = str(totals.get("total_tokens", "unknown"))
