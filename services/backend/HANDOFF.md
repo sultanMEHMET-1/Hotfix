@@ -369,6 +369,8 @@ After the fixes: 6 of 6 sentences worked (three Wikipedia headings, two python.o
 dashboard: both built-in public workflows ran in about 50 ms of UI time on the fast path, a created workflow was built
 in 15 s for $0.0088, kept, ran in 1.3 s, and was deleted with its files. Total spend about 12 cents.
 
+First live user attempt with 'Look up Max Verstappen on Wikipedia and tell me the article heading' failed: Wikipedia showed a pop-up, the agent clicked 'Maybe later' and 'Close' before typing, those clicks were recorded as steps, and the replay failed without the pop-up. Fixed by dropping leading dismiss clicks (maybe later, close, dismiss, accept...) when the workflow has an input step, and by one automatic retry for failures where the agent merely took a different path (the retry never applies to safety refusals or timeouts; a failed attempt can cost a second cent). Backend logs now record the failure code. A pop-up that appears only during a later run is still not handled by the runner.
+
 Known limits: only input and click steps (an agent that presses Enter, picks a dropdown option or navigates by URL is
 rejected as `unsupported_action`; the prompt tells it not to, and 6 of 6 complied); some derived selectors are
 structural (`li:nth-of-type(1) > h3 > a`) and may break on a redesign, which repair then handles; a search result

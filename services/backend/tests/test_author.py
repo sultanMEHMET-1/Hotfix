@@ -99,6 +99,17 @@ class CompileTests(M2Harness):
                 author.compile_steps(history(*steps), plan(), selectors)
             self.assertEqual(caught.exception.code, code)
 
+    def test_a_popup_closed_before_typing_is_not_part_of_the_workflow(self):
+        captured = {(1, "html/body/1"): "#q", (2, "html/body/2"): "#go", (7, "html/body/7"): "#later", (8, "html/body/8"): "#x"}
+        later = self.clicked(element("BUTTON", "Maybe later", backend_id=7))
+        close = self.clicked(element("BUTTON", "Close", backend_id=8))
+        steps, fields = author.compile_steps(history(later, close, self.typed("Marie Curie"), self.clicked()), plan(), captured)
+        self.assertEqual([s["action_type"] for s in steps], ["input", "click"])
+        self.assertEqual(set(fields), {"input_search", "click_search"})
+        # With nothing to type, a leading click is the task itself (python.org Downloads), and a later dismiss stays.
+        steps, _ = author.compile_steps(history(self.clicked(element("A", "Downloads", backend_id=2))), plan(params=[]), captured)
+        self.assertEqual([s["label"] for s in steps], ["Downloads"])
+
     def test_a_selector_that_embeds_an_example_value_is_caught(self):
         self.assertTrue(author.selectors_embed_values({"a": 'a[title="Marie Curie"]'}, plan()))
         self.assertTrue(author.selectors_embed_values({"a": "a[href*=grace hopper]"}, plan()))
@@ -120,6 +131,21 @@ def sample_draft(workflow_id="custom-wikipedia-heading-ab12"):
                     "fields": {"input_search": "#q", "click_search": "#go", "read_heading": "h1"}}
     return author.Draft(workflow_id, "wikipedia", "Read the heading", definition, selector_map, definition["steps"],
                         {"heading": "Marie Curie"}, 0.006, 15000)
+
+
+class RetryTests(M2Harness):
+    async def test_one_more_attempt_only_for_failures_a_new_path_could_fix(self):
+        good = sample_draft()
+        for code, calls in (("replay_failed", 2), ("unresolved_element", 2), ("unsafe_action", 1), ("not_read_only", 1),
+                            ("author_timeout", 1)):
+            once = AsyncMock(side_effect=[BackendError(code, "x"), good])
+            with self.subTest(code=code), patch("services.backend.author.draft_once", once):
+                try:
+                    result = await author.draft(self.settings, "wikipedia", "Read the heading please")
+                except BackendError as exc:
+                    result = exc
+                self.assertEqual(once.await_count, calls)
+                self.assertIs(result, good) if calls == 2 else self.assertEqual(result.code, code)
 
 
 class KeepingCreatedWorkflows(M2Harness):

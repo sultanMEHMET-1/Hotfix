@@ -39,6 +39,11 @@ UNSAFE_NAME = re.compile(r"(?i)\b(publish|save changes|save page|log ?in|sign ?i
 ACTION_WORDS = re.compile(
     r"(?i)\b(edit|add|change|update|delete|remove|create|post|publish|submit|send|upload|write|rewrite|replace|revert|"
     r"vandali[sz]e|log ?in|sign ?in|sign ?up|register|password|account|buy|purchase|order|pay|donate|subscribe|download and install)\b")
+# A pop-up or cookie banner the agent closed before doing the task is not part of the task.
+DISMISS = re.compile(r"(?i)\b(maybe later|close|dismiss|no thanks|not now|got it|accept|agree|decline|skip)\b")
+# Failures that come from the agent taking a different path this time, so one more attempt can succeed.
+RETRYABLE = {"unsupported_action", "ambiguous_param", "unresolved_element", "replay_failed", "replay_mismatch",
+             "replay_unstable", "agent_no_result", "agent_blocked", "agent_error", "param_in_selector"}
 UNSAFE_URL = re.compile(r"(?i)action=(edit|submit)|veaction=edit|Special:(UserLogin|CreateAccount)")
 
 
@@ -190,6 +195,9 @@ def compile_steps(serialized, plan, captured):
             steps.append(step)
             fields[name] = selector
             keys.append((kind, key))
+    if any(step["action_type"] == "input" for step in steps):
+        while steps and steps[0]["action_type"] == "click" and DISMISS.search(steps[0]["label"]):
+            fields.pop(steps.pop(0)["field"])
     if not steps or len(steps) > MAX_STEPS:
         raise BackendError("unsupported_action", "The agent did not complete the task by typing and clicking")
     return steps, fields
@@ -243,7 +251,20 @@ def selectors_embed_values(fields, plan):
 
 
 async def draft(settings: Settings, site: str, request: str, *, timeout: float = 120) -> Draft:
+    """One attempt, and a second if the first failed only because the agent took a different path (a pop-up, a detour)."""
     request = validate_request(site, request)
+    clock = asyncio.get_running_loop().time
+    started = clock()
+    try:
+        return await draft_once(settings, site, request, timeout=timeout)
+    except BackendError as exc:
+        remaining = timeout - (clock() - started)
+        if exc.code not in RETRYABLE or remaining < 40:
+            raise
+    return await draft_once(settings, site, request, timeout=remaining)
+
+
+async def draft_once(settings: Settings, site: str, request: str, *, timeout: float = 120) -> Draft:
     key = os.getenv("GOOGLE_API_KEY") or os.getenv("GEMINI_API_KEY")
     model = os.getenv("GEMINI_MODEL")
     if not key or not model:

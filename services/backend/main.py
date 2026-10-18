@@ -217,6 +217,7 @@ def create_app(settings=None):
             from . import author  # imported here so the fast path never loads the model code
             draft = await author.draft(settings, body.site, body.request)
         except BackendError as exc:
+            log.warning("Workflow creation failed: %s", exc.code)
             status = {"model_unconfigured": 503, "author_timeout": 504, "agent_error": 502}.get(exc.code, 422)
             raise HTTPException(status, {"code": exc.code, "message": str(exc)}) from exc
         finally:

@@ -105,8 +105,9 @@ export default function CreateWorkflow({ site, selectedId, onKept, onDeleted }: 
         </button>
         <span className="font-mono text-sm tabular-nums text-ink-muted" aria-live="off">{text.length} / {LIMIT}</span>
         {busy && !draft && (
-          <span role="status" className="text-base text-warning">
-            Reading the page and testing the result <span className="font-mono tabular-nums">{(elapsed / 1000).toFixed(0)} s</span>
+          <span role="status" className="flex items-baseline gap-3 text-warning">
+            <span className="min-w-[4.5rem] font-mono text-lg tabular-nums">{`${(elapsed / 1000).toFixed(1)} s`}</span>
+            <span className="text-base">Reading the page and testing the result</span>
           </span>
         )}
       </div>
