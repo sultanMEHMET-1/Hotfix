@@ -119,10 +119,11 @@ For the write demo, start the inventory site and open `http://127.0.0.1:3100/rec
    `canary-record` on the site, and its "Last saved" line and Recent changes update automatically, even though
    the runner uses a separate browser. You can also save directly in the site's price form. Supplier notes
    have a separate form and do not change prices.
-2. Click **Break something** on the inventory page. Each click applies one more change, and a note beside the
-   button says what changed: the save button moves into an authorization dialog, the Record ID box gets a new
-   id, the saved value's test id is renamed, or decoy buttons and a search box appear. At most two changes
-   that break a selector are active at once, so a repair never needs more than two agent runs. The separate
+2. Click **Break something** on the inventory page. Each click rolls one random change, and a note beside the
+   button says what changed. The save button, the Record ID box and the saved value can each break three ways
+   (a new id, a dialog or toolbar, a renamed test id), and decoy buttons and a search box can appear. At most two
+   fields are broken at once, so a repair never needs more than two agent runs; a click on an already broken field
+   breaks it a different way, so there is always something new to break. The separate
    **Add sign-in wall** button puts a sign-in wall in place of the form: the agent must stop and fail honestly, with
    no records and no writes, and the dashboard says it was blocked by a sign-in wall. It is a dead end by design,
    there to show the refusal; **Restore site** clears it. Trigger the workflow after

@@ -46,26 +46,31 @@ class SeedInventoryTests(unittest.TestCase):
 
 
 class BreakSequenceTests(unittest.TestCase):
-    def test_clicks_pick_heal_able_breaks_then_nothing_and_never_the_login_wall(self):
+    def test_every_click_breaks_something_new_and_never_runs_out_or_adds_the_login_wall(self):
         from services.backend.sandbox import records_site as site
         state = site.fresh_state()
         rng = random.Random(7)
-        seen = []
-        while (key := site.next_break(state, rng)) is not None:
-            seen.append(key)
+        seen = set()
+        for _ in range(200):
+            key, variant = site.next_break(state, rng)
+            self.assertNotEqual(key, "login")
+            if key in site.VARIANTS:
+                self.assertNotEqual(state["variants"].get(key), variant)
+                state["variants"][key] = variant
             state[site.BREAKS[key][0]] = True
+            seen.add((key, variant))
             self.assertLessEqual(sum(site.BREAKS[k][2] for k in site.applied(state)), site.MAX_SELECTOR_BREAKS)
-        self.assertNotIn("login", seen)
-        self.assertIn("decoys", seen)
-        self.assertEqual(sum(site.BREAKS[k][2] for k in seen), site.MAX_SELECTOR_BREAKS)
-        self.assertEqual(len(seen), len(set(seen)))
+        for key in (k for k in site.applied(state) if k in site.VARIANTS):
+            self.assertEqual({n for k, n in seen if k == key}, set(range(len(site.VARIANTS[key]))))
 
     def test_the_selector_cap_is_what_keeps_a_spare_agent_run(self):
         from services.backend.sandbox import records_site as site
         state = site.fresh_state()
         state["chaos"] = state["input"] = True
-        for seed in range(50):
-            self.assertIn(site.next_break(state, random.Random(seed)), {"decoys"})
+        state["variants"] = {"button": 0, "input": 0}
+        for seed in range(100):
+            key, _ = site.next_break(state, random.Random(seed))
+            self.assertIn(key, {"button", "input", "decoys"})
 
 
 class WriteGuardTests(unittest.TestCase):
