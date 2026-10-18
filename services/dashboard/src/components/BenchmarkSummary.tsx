@@ -7,12 +7,14 @@ export interface BenchmarkSummaryProps {
   sample?: boolean;
 }
 
-/** What an agent doing the task from scratch costs on every run, from our model benchmark (about 11 s, half a cent). Not measured live. */
+/** What an agent doing the task costs per run, from our model benchmark (about 11 s, half a cent). Used only until a real agent run exists. */
 const AGENT_EVERY_RUN_MS = 11000;
 
 export default function BenchmarkSummary({ benchmarks, sample = false }: BenchmarkSummaryProps) {
   const { fastMs, healMs } = benchmarks;
-  const ratio = fastMs !== null && fastMs > 0 ? AGENT_EVERY_RUN_MS / fastMs : null;
+  // The agent side is a real run of this workflow in this session when there is one, else the benchmark figure.
+  const agentMs = healMs ?? AGENT_EVERY_RUN_MS;
+  const ratio = fastMs !== null && fastMs > 0 ? agentMs / fastMs : null;
   // Both bars share one scale, so the picture is the same as the numbers: the agent run is the long one.
   const scale = Math.max(fastMs ?? 0, healMs ?? 0);
   const pct = (ms: number | null) => (ms === null || scale === 0 ? null : Math.max((ms / scale) * 100, 2));
@@ -26,7 +28,11 @@ export default function BenchmarkSummary({ benchmarks, sample = false }: Benchma
         <div className="flex flex-col justify-center border-t-[1.5px] border-ink px-1 py-6 md:border-l-[1.5px] md:border-t-0 md:px-8">
           <span className="font-display text-hero text-ink">{ratio !== null ? `${Math.round(ratio)}×` : "n/a"}</span>
           <span className="mt-3 text-sm text-ink-muted">{ratio !== null ? "faster than an agent on every run" : "Run it once to compare"}</span>
-          {ratio !== null && <span className="mt-1 text-sm text-ink-muted">Agent every run: about 11 s and half a cent, from our benchmark.</span>}
+          {ratio !== null && (
+            <span className="mt-1 text-sm text-ink-muted">
+              {healMs !== null ? "Against the agent run you just measured." : "Agent every run: about 11 s and half a cent, from our benchmark."}
+            </span>
+          )}
         </div>
       </div>
       {sample && <p className="mt-3 text-sm text-ink-muted">Sample figures from fixtures. Run the workflow for measured numbers.</p>}

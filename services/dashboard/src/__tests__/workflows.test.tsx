@@ -123,11 +123,14 @@ describe("the redesigned result views", () => {
 
   it("headlines how much faster the fast path is than an agent on every run, and says n/a before a run", () => {
     const { rerender } = render(<BenchmarkSummary benchmarks={{ fastMs: 100, healMs: 3000, healCost: 0.01 }} />);
-    expect(screen.getByText("110×")).toBeInTheDocument();
+    expect(screen.getByText("30×")).toBeInTheDocument();
     expect(screen.getByText("faster than an agent on every run")).toBeInTheDocument();
-    expect(screen.getByText(/from our benchmark/)).toBeInTheDocument();
+    expect(screen.getByText(/Against the agent run you just measured/)).toBeInTheDocument();
     expect(screen.queryByText(/Cached cost/)).toBeNull();
     expect(screen.getByText("3.0")).toBeInTheDocument();
+    rerender(<BenchmarkSummary benchmarks={{ fastMs: 100, healMs: null, healCost: null }} />);
+    expect(screen.getByText("110×")).toBeInTheDocument();
+    expect(screen.getByText(/from our benchmark/)).toBeInTheDocument();
     rerender(<BenchmarkSummary benchmarks={EMPTY_BENCHMARKS} />);
     expect(screen.getAllByText("n/a").length).toBeGreaterThan(1);
   });
