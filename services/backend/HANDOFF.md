@@ -241,6 +241,36 @@ canary change). Latest run: fast path 366-375 ms over HTTP; heals 24.3-29.9 s, a
 time 20.2-25.8 s, SDK cost $0.028-$0.032; every record committed; versions monotonic.
 `reset_demo.py` was verified against the live backend and with the backend stopped.
 
+## Dashboard integration (merged from origin/mender-dashboard)
+
+Verified in a real browser (Playwright) against the real backend, runner and portal, with
+mocks off: a fast run shows "Fast path, cached selector / Deterministic Playwright"
+(409 ms); with Chaos Mode on, a real Gemini heal shows "Agent is re-indexing the page", then
+"Healed, selector patched / Browser Use Agent Engaged", 28.6 s, $0.0309, and the committed
+record `submit_button v1 -> v2` with old and new selectors; failures show the structured
+error. No browser console errors. The dashboard's response validator accepted every shape
+the backend produces (success, healed with cost, rolled back, failure with no records,
+refused write).
+
+Fixed in `services/dashboard` (own commit, authorized by the backend owner):
+- The request body was `{workflow_id}` and got HTTP 422 from the backend (Sentry recorded it).
+  It now sends `{workflow, params}`.
+- A failed run always said "Reverted after a failed recovery" and "the cache is still
+  fresh". The copy now reflects what happened: reverted only when a `rolled_back` record
+  exists, "no selector changed" otherwise, and a failed rollback is shown as needing
+  operator action.
+- Trace links used `/performance/trace/`; they now use `/explore/traces/trace/`, the path
+  Sentry's own API returned for this project. The dashboard's trace IDs were confirmed to
+  exist in Sentry.
+
+Still open for Person 3 or the contracts owner:
+- A cooldown hit looks like any other failure. The response has no field saying it was
+  cached or how many seconds remain, so the dashboard cannot show "retry in N s" without a
+  contract field (for example a cooldown remaining value). Not invented here.
+- The "agent re-indexing" and "agent cost" figures show fixture placeholders (4,200 ms,
+  $0.0020) until the first real heal in that browser session; history is in memory only.
+- Reset is not in the UI. Use `POST /api/v1/admin/reset` between demo runs.
+
 ## Write workflows (local sites only)
 
 Product scope: reads work on any reachable site; writes only on sites we control, because

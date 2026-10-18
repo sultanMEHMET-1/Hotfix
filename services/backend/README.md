@@ -327,6 +327,19 @@ measurements once per background task. Joined requests do not duplicate usage.
 SDK step duration is not substituted for measured wall-clock time. SDK costs
 are optional estimates, not billing receipts. See HANDOFF.md for measured runs.
 
+## Run with the dashboard
+
+Start the portal and backend as above, then from `services/dashboard`:
+
+```sh
+VITE_USE_MOCKS=false VITE_SENTRY_ORG=tanish-misra npm run dev
+```
+
+The Vite dev server proxies `/api` to `localhost:8000`, so no CORS setup is needed. The
+dashboard's request is `{"workflow": "permit-application", "params": {"permit_id": ..., "applicant_name": ...}}`.
+Before running the demo again after a heal, reset: `curl -X POST localhost:8000/api/v1/admin/reset`
+(the healed selector only matches Chaos Mode's page, so a normal-mode page needs the original back).
+
 ## Rehearse the demo
 
 Start the portal (`.venv/bin/python services/portal/server.py`)
