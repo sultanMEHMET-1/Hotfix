@@ -2,6 +2,7 @@
 
 from dataclasses import dataclass
 import json
+import logging
 import os
 from pathlib import Path
 import shutil
@@ -101,17 +102,31 @@ class Settings:
         return self.runner_script or self.root / "services/runner/execute.py"
 
 
+def load_workflow(path: Path):
+    workflow = Workflow.model_validate(read_json(path))
+    params_validator = validator(workflow.params_schema)
+    output_validator = validator(workflow.output_schema)
+    params_validator.validate(workflow.canary.params)
+    output_validator.validate(workflow.canary.expected_output)
+    masked_output(workflow.canary.expected_output, workflow.canary.ignore_paths)
+    return workflow, params_validator, output_validator
+
+
 def load_workflows(settings: Settings):
     workflows = {}
     for path in sorted(settings.workflows_dir.glob("*.json")):
-        workflow = Workflow.model_validate(read_json(path))
-        params_validator = validator(workflow.params_schema)
-        output_validator = validator(workflow.output_schema)
-        params_validator.validate(workflow.canary.params)
-        output_validator.validate(workflow.canary.expected_output)
-        masked_output(workflow.canary.expected_output, workflow.canary.ignore_paths)
-        workflows[path.stem] = (workflow, params_validator, output_validator)
+        try:
+            workflows[path.stem] = load_workflow(path)
+        except Exception:
+            if not path.name.startswith("custom-"):
+                raise
+            # A broken workflow someone created must not take the built-in ones down with it.
+            logging.getLogger("mender").warning("Skipping invalid created workflow %s", path.name)
     return workflows
+
+
+def referenced_fields(definition):
+    return {step.field for step in definition.steps} | {output.field for output in definition.outputs.values()}
 
 
 def prune_runs(folder: Path, keep: int = 50):

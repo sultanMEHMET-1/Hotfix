@@ -1,0 +1,10 @@
+{
+  "workflow_id": "quotes-love-first-quote",
+  "target_url": "https://quotes.toscrape.com/",
+  "version": 1,
+  "fields": {
+    "click_love": ".tags-box a[href='/tag/love/']",
+    "first_quote": "div.quote:first-child span.text",
+    "first_author": "div.quote:first-child small.author"
+  }
+}

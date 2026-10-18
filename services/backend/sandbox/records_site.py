@@ -4,8 +4,8 @@
 State is in memory. Each press of "Break something" applies one more change (POST /chaos
 {"next": true}): the save button moves into a dialog (chaos), the Record ID box gets a new id
 (input), the saved value's test id is renamed (read), decoy buttons and a search box appear
-(hard), and finally a sign-in wall replaces the form (login). At most two changes that break a
-selector are active at once, and the login wall comes last. POST /chaos {"break": "<name>"}
+(hard). At most two changes that break a selector are active at once. A separate "Add sign-in
+wall" button (POST /chaos {"break": "login"}) replaces the form with a sign-in wall. POST /chaos {"break": "<name>"}
 applies one change deterministically, and the original {"enabled", "hard", "read"} body still
 sets the flags directly. GET /state shows records, write count, last save and the active
 changes; POST /reset restores the seed inventory and removes every change.
@@ -43,7 +43,7 @@ SEED_DETAILS = {
 def fresh_state(generation=0):
     return {"records": dict(SEEDS), "inventory": {key: dict(value) for key, value in SEED_DETAILS.items()},
             "writes": 0, "last_saved": None, "chaos": False, "hard": False, "read": False,
-            "input": False, "login": False, "last_break": None, "audit": [], "supplier_note": None, "reset_generation": generation}
+            "input": False, "login": False, "last_break": None, "variants": {}, "audit": [], "supplier_note": None, "reset_generation": generation}
 
 
 STATE = fresh_state()
@@ -56,6 +56,15 @@ BREAKS = {
     "decoys": ("hard", "Decoy buttons and a search box appeared.", False),
     "login": ("login", "A sign-in wall replaced the form.", False),
 }
+# Each selector class can break in several ways; variant 0 is the original change.
+VARIANTS = {
+    "button": ["The save button moved into a dialog and lost its id.", "The save button was given a new id.",
+               "The save button moved into a toolbar and lost its id."],
+    "input": ["The Record ID box was given a new id.", "The Record ID box was renamed to a reference id.",
+              "The Record ID box was renamed to an item code."],
+    "read": ["The saved value's test id was renamed.", "The saved value's test id was changed to a price label.",
+             "The saved value lost its test id and got a data field instead."],
+}
 MAX_SELECTOR_BREAKS = 2  # a heal fixes one field per agent run and runs at most three, so keep a spare
 
 
@@ -64,24 +73,26 @@ def applied(state):
 
 
 def next_break(state, rng):
-    """The next change a click applies: a random heal-able one, then the sign-in wall, then nothing."""
+    """One random change per click: (class, variant). A class already broken is re-broken a different way."""
     active = applied(state)
-    pool = [key for key in ("button", "input", "read", "decoys") if key not in active]
-    if sum(BREAKS[key][2] for key in active) >= MAX_SELECTOR_BREAKS:
-        pool = [key for key in pool if not BREAKS[key][2]]
-    if pool:
-        return rng.choice(pool)
-    return None if "login" in active else "login"
+    capped = sum(BREAKS[key][2] for key in active) >= MAX_SELECTOR_BREAKS
+    pool = [(key, n) for key, texts in VARIANTS.items() for n in range(len(texts))
+            if (key in active or not capped) and state["variants"].get(key) != n]
+    if "decoys" not in active:
+        pool.append(("decoys", 0))
+    return rng.choice(pool) if pool else None
 
 
 def describe(state):
     last = state["last_break"]
-    return {"key": last, "message": BREAKS[last][1]} if last in BREAKS and state[BREAKS[last][0]] else None
+    if last not in BREAKS or not state[BREAKS[last][0]]:
+        return None
+    return {"key": last, "message": VARIANTS[last][state["variants"][last]] if last in VARIANTS else BREAKS[last][1]}
 
 
 def chaos_reply(state):
     return {"enabled": state["chaos"], "hard": state["hard"], "read": state["read"], "input": state["input"],
-            "login": state["login"], "broken": applied(state), "last": describe(state), "exhausted": state["login"]}
+            "login": state["login"], "broken": applied(state), "variants": state["variants"], "last": describe(state), "exhausted": state["login"]}
 
 STYLE = """
 :root { color-scheme: light; font-family: Arial, sans-serif; color: #292929; background: #d4d0c8; font-size: 14px; }
@@ -152,7 +163,7 @@ FORM = """<form id="record-form">
 SCRIPT = """
 (() => {
   const form = document.querySelector('#record-form'), toggle = document.querySelector('#break-btn');
-  const restore = document.querySelector('#restore-btn');
+  const restore = document.querySelector('#restore-btn'), loginBtn = document.querySelector('#login-btn');
   const button = document.querySelector('#save-btn'), result = document.querySelector('#result');
   const error = document.querySelector('#action-error'), search = document.querySelector('#inventory-filter');
   const category = document.querySelector('#category-filter'), rendered = new Map();
@@ -165,36 +176,45 @@ SCRIPT = """
     draw(); rendered.set(key, signature);
   }
   function applyModes(next) {
-    modes = {chaos: next.chaos, hard: next.hard, read: next.read, input: next.input, login: next.login};
+    modes = {chaos: next.chaos, hard: next.hard, read: next.read, input: next.input, login: next.login, variants: next.variants};
     update('modes', modes, () => {
       document.body.classList.toggle('chaos', modes.chaos);
       text('break-btn', modes.login ? 'Nothing left to break' : 'Break something');
+      text('login-btn', modes.login ? 'Sign-in wall up' : 'Add sign-in wall');
       syncButtons();
       const field = form.elements.record_id, label = form.querySelector('label');
-      field.id = modes.input ? 'rid' : 'record-id'; label.htmlFor = field.id;
+      const v = modes.variants || {};
+      field.id = modes.input ? ['rid', 'record-ref', 'item-code'][v.input || 0] : 'record-id'; label.htmlFor = field.id;
       let wall = document.querySelector('#login-wall');
       if (modes.login && !wall) {
         form.hidden = true; form.insertAdjacentHTML('afterend', document.getElementById('login-template').innerHTML);
       } else if (!modes.login && wall) { wall.remove(); form.hidden = false; }
-      document.querySelector('#out-value').setAttribute('data-testid', modes.read ? 'result-value' : 'saved-value');
+      const out = document.querySelector('#out-value');
+      out.removeAttribute('data-field'); out.setAttribute('data-testid', modes.read ? ['result-value', 'saved-price', 'unused'][v.read || 0] : 'saved-value');
+      if (modes.read && (v.read || 0) === 2) { out.removeAttribute('data-testid'); out.setAttribute('data-field', 'saved'); }
       for (const [slot, template] of [['search-slot', 'search-template'], ['decoys', 'decoy-template']]) {
         const container = document.getElementById(slot);
         if (modes.hard && !container.firstChild) container.append(document.getElementById(template).content.cloneNode(true));
         if (!modes.hard) container.replaceChildren();
       }
-      let dialog = document.querySelector('#chaos-modal');
-      if (modes.chaos && !dialog) {
+      const holder = button.parentElement;
+      if (holder.id === 'chaos-modal' || holder.id === 'action-bar') holder.replaceWith(button);
+      button.id = 'save-btn'; button.removeAttribute('data-action');
+      if (modes.chaos) {
+        const kind = v.button || 0;
         button.removeAttribute('id'); button.setAttribute('data-action', 'save');
-        dialog = document.createElement('div'); dialog.id = 'chaos-modal';
-        dialog.setAttribute('role', 'dialog'); dialog.setAttribute('aria-label', 'Save record dialog');
-        button.replaceWith(dialog); dialog.append(button);
-      } else if (!modes.chaos && dialog) {
-        button.id = 'save-btn'; button.removeAttribute('data-action'); dialog.replaceWith(button);
+        if (kind === 1) { button.id = 'commit-btn'; button.removeAttribute('data-action'); }
+        else {
+          const box = document.createElement('div');
+          box.id = kind === 0 ? 'chaos-modal' : 'action-bar';
+          box.setAttribute('role', kind === 0 ? 'dialog' : 'toolbar'); box.setAttribute('aria-label', kind === 0 ? 'Save record dialog' : 'Record actions');
+          button.replaceWith(box); box.append(button);
+        }
       }
     });
   }
   function anyBroken() { return modes.chaos || modes.hard || modes.read || modes.input || modes.login; }
-  function syncButtons() { toggle.disabled = pending || modes.login; restore.disabled = pending || !anyBroken(); }
+  function syncButtons() { toggle.disabled = pending || modes.login; loginBtn.disabled = pending || modes.login; restore.disabled = pending || !anyBroken(); }
   function stock(quantity) { return quantity === 0 ? 'Out' : quantity < 5 ? 'Low' : 'In stock'; }
   function matching(record, details) { return `${record} ${details.name}`.toLowerCase().includes(search.value.toLowerCase()); }
   function rows() {
@@ -304,6 +324,7 @@ SCRIPT = """
     await refresh();
   }
   toggle.addEventListener('click', () => changeChaos({next: true}));
+  loginBtn.addEventListener('click', () => changeChaos({break: 'login'}));
   restore.addEventListener('click', () => changeChaos({enabled: false, hard: false, read: false, input: false, login: false}));
   form.addEventListener('submit', async (event) => {
     event.preventDefault();
@@ -372,12 +393,12 @@ def render():
                '<tbody id="audit-body"></tbody></table></div><p id="audit-empty">No price changes recorded.</p></section>'
                '<section class="paper"><h2>Supplier notes</h2><iframe id="supplier-note-frame" title="Supplier note" src="/supplier-note"></iframe></section></div>'
                '<p id="sync-status" role="status">Connecting to inventory...</p>')
-    modes = json.dumps({key: STATE[key] for key in ("chaos", "hard", "read", "input", "login")})
+    modes = json.dumps({**{key: STATE[key] for key in ("chaos", "hard", "read", "input", "login")}, "variants": STATE["variants"]})
     scripts = (f'<template id="search-template">{SEARCH}</template><template id="decoy-template">{DECOYS}</template><template id="login-template">{LOGIN}</template>'
                f'<script>{SCRIPT.replace("__MODES__", modes)}</script>')
     page = shell("Inventory", content, scripts)
     return page.replace('</nav>', '<span id="chaos-note" role="status"></span><button id="break-btn" type="button">Break something</button>'
-                       '<button id="restore-btn" type="button" disabled>Restore site</button></nav>', 1)
+                       '<button id="login-btn" type="button">Add sign-in wall</button><button id="restore-btn" type="button" disabled>Restore site</button></nav>', 1)
 
 
 STATIC_PAGES = {
@@ -456,15 +477,20 @@ class Handler(BaseHTTPRequestHandler):
                     return self.reply(200, STATE["supplier_note"])
                 if path == "/chaos":
                     if "break" in data or data.get("next"):
-                        key = data["break"] if "break" in data else next_break(STATE, random)
+                        key, variant = (data["break"], int(data.get("variant", 0))) if "break" in data else next_break(STATE, random) or (None, 0)
                         if key is not None:
+                            if key in VARIANTS and not 0 <= variant < len(VARIANTS[key]):
+                                raise ValueError("unknown variant")
                             STATE[BREAKS[key][0]] = True
                             STATE["last_break"] = key
+                            if key in VARIANTS:
+                                STATE["variants"][key] = variant
                     else:
                         enabled = bool(data["enabled"])
                         for flag, _, _ in BREAKS.values():
                             STATE[flag] = enabled if flag == "chaos" else bool(data.get(flag, False))
                         STATE["last_break"] = None
+                        STATE["variants"] = {}
                     return self.reply(200, chaos_reply(STATE))
                 if path == "/reset":
                     generation = STATE["reset_generation"] + 1

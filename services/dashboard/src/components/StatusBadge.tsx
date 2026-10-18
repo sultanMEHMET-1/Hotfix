@@ -16,6 +16,7 @@ export function badgeState(phase: RunPhase, result: WorkflowExecutionResponse | 
 /** What a failed run actually did, so the label never claims a revert that did not happen. */
 export function failedCopy(result: WorkflowExecutionResponse | null): string {
   if (result?.error?.code === "rollback_failed") return "Rollback failed, operator action needed";
+  if (result?.error?.code === "agent_blocked") return "Blocked by a sign-in wall, nothing changed";
   if ((result?.heal_records ?? []).some((r) => r.verification_outcome === "rolled_back")) return "Reverted after a failed recovery";
   if (result?.recovery_attempted) return "Recovery failed, no selector changed";
   return "Run failed before recovery";

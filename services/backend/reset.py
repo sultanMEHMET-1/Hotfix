@@ -5,6 +5,7 @@ import asyncio
 import json
 from pathlib import Path
 
+from . import custom
 from .config import Settings, read_json
 from .store import SelectorStore
 
@@ -30,6 +31,10 @@ async def committed_selectors(settings, workflow_id):
     )
     stdout, _ = await process.communicate()
     if process.returncode != 0:
+        # A workflow created from a sentence is never committed; its first version is saved when it is kept.
+        snapshot = custom.baseline_path(settings, workflow_id)
+        if workflow_id.startswith("custom-") and snapshot.is_file():
+            return json.loads(snapshot.read_text())
         raise ValueError("The committed selector map is unavailable")
     return json.loads(stdout)
 

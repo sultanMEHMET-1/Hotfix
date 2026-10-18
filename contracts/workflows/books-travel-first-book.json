@@ -1,0 +1,52 @@
+{
+  "goal": "Open the Travel category on Books to Scrape and report the first book's title and price.",
+  "steps": [
+    {
+      "field": "click_travel",
+      "action_type": "click",
+      "label": "Travel"
+    }
+  ],
+  "outputs": {
+    "title": {
+      "field": "first_book_title",
+      "read": "text"
+    },
+    "price": {
+      "field": "first_book_price",
+      "read": "text"
+    }
+  },
+  "params_schema": {
+    "type": "object",
+    "required": [],
+    "additionalProperties": false,
+    "properties": {}
+  },
+  "output_schema": {
+    "type": "object",
+    "required": [
+      "title",
+      "price"
+    ],
+    "additionalProperties": false,
+    "properties": {
+      "title": {
+        "type": "string",
+        "description": "the first book's title"
+      },
+      "price": {
+        "type": "string",
+        "description": "the first book's price"
+      }
+    }
+  },
+  "canary": {
+    "params": {},
+    "expected_output": {
+      "title": "It's Only the Himalayas",
+      "price": "\u00a345.17"
+    }
+  },
+  "mutates": false
+}

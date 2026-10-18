@@ -14,7 +14,8 @@ import sentry_sdk
 from sentry_sdk.integrations.logging import LoggingIntegration
 
 from contracts.api_types import RecoveryError, WorkflowExecutionResponse, WorkflowSummary
-from .config import BackendError, Settings, load_workflows, prune_runs, read_json, validator, write_allowed
+from . import custom
+from .config import BackendError, Settings, load_workflows, prune_runs, read_json, referenced_fields, validator, write_allowed
 from .recovery import Recovery
 from .reset import committed_selectors, restore_original
 from .runner import Runner
@@ -46,10 +47,6 @@ def capture_failure(workflow_id, result):
     })
 
 
-def referenced_fields(definition):
-    return {step.field for step in definition.steps} | {output.field for output in definition.outputs.values()}
-
-
 def create_app(settings=None):
     settings = settings or Settings.from_env()
 
@@ -66,6 +63,8 @@ def create_app(settings=None):
             profile_session_sample_rate=1.0, profile_lifecycle="trace",
         )
         app.state.configuration_error = None
+        app.state.drafts = custom.Drafts()
+        app.state.author_busy = False
         app.state.diagnose = None
         try:
             timeouts = (settings.runner_timeout, settings.agent_timeout, settings.recovery_timeout,
@@ -76,13 +75,20 @@ def create_app(settings=None):
                 raise ValueError("Cleanup reserve must be shorter than recovery timeout")
             app.state.workflows = load_workflows(settings)
             app.state.stores = {}
-            for workflow_id, (definition, _, _) in app.state.workflows.items():
-                store = SelectorStore(settings, workflow_id)
-                selector_map = store.read()
-                if selector_map["workflow_id"] != workflow_id:
-                    raise ValueError("A selector map belongs to another workflow")
-                if not referenced_fields(definition) <= set(selector_map["fields"]):
-                    raise ValueError("A workflow references unknown selector fields")
+            for workflow_id, (definition, _, _) in list(app.state.workflows.items()):
+                try:
+                    store = SelectorStore(settings, workflow_id)
+                    selector_map = store.read()
+                    if selector_map["workflow_id"] != workflow_id:
+                        raise ValueError("A selector map belongs to another workflow")
+                    if not referenced_fields(definition) <= set(selector_map["fields"]):
+                        raise ValueError("A workflow references unknown selector fields")
+                except Exception:
+                    if not workflow_id.startswith("custom-"):
+                        raise
+                    log.warning("Skipping created workflow %s: its selector map is missing or does not match", workflow_id)
+                    del app.state.workflows[workflow_id]
+                    continue
                 app.state.stores[workflow_id] = store
             for workflow_id, store in app.state.stores.items():
                 async with store.lock(exclusive=True):
@@ -193,6 +199,80 @@ def create_app(settings=None):
         default = getattr(app.state, "default_workflow", None)
         return {"version": versions.get(default) or next(iter(versions.values()), None), "versions": versions,
                 "blocked": app.state.configuration_error}
+
+    class DraftRequest(BaseModel):
+        model_config = ConfigDict(extra="forbid")
+        site: str = Field(max_length=20)
+        request: str = Field(max_length=600)
+
+    def summary(name):
+        definition = app.state.workflows[name][0]
+        return WorkflowSummary(id=name, goal=definition.goal, mutates=definition.mutates, default=False,
+                               params_schema=definition.params_schema, example_params=definition.canary.params)
+
+    @app.post("/api/v1/workflows/draft")
+    async def create_draft(body: DraftRequest, request: Request):
+        """Describe a read-only workflow in a sentence; returns a preview to keep or discard. Spends model money."""
+        require_local(request)
+        if app.state.configuration_error:
+            raise HTTPException(503, app.state.configuration_error)
+        if app.state.author_busy:
+            raise HTTPException(409, {"code": "busy", "message": "Another workflow is being created"})
+        try:
+            app.state.drafts.check_quota(app)
+        except BackendError as exc:
+            raise HTTPException(422, {"code": exc.code, "message": str(exc)}) from exc
+        app.state.author_busy = True
+        try:
+            from . import author  # imported here so the fast path never loads the model code
+            draft = await author.draft(settings, body.site, body.request)
+        except BackendError as exc:
+            if exc.code not in author.FREE_REFUSALS:  # a refusal before any model call costs nothing, so it is not counted
+                app.state.drafts.count_attempt()
+            log.warning("Workflow creation failed: %s", exc.code)
+            status = {"model_unconfigured": 503, "author_timeout": 504, "agent_error": 502}.get(exc.code, 422)
+            raise HTTPException(status, {"code": exc.code, "message": str(exc)}) from exc
+        finally:
+            app.state.author_busy = False
+        app.state.drafts.count_attempt()
+        return custom.view(app.state.drafts.add(draft), draft)
+
+    @app.post("/api/v1/workflows/draft/{token}/accept", response_model=WorkflowSummary)
+    async def accept_draft(token: str, request: Request):
+        require_local(request)
+        draft = app.state.drafts.get(token)
+        if draft is None:
+            raise HTTPException(404, {"code": "no_draft", "message": "That preview expired; create it again"})
+        if len(custom.custom_ids(app)) >= custom.MAX_CUSTOM:  # checked first, so the preview survives and can be kept later
+            raise HTTPException(422, {"code": "quota_total", "message": "Delete a created workflow first"})
+        try:
+            custom.keep(app, settings, draft)
+        except Exception as exc:
+            log.exception("Could not keep a created workflow")
+            sentry_sdk.capture_exception()
+            raise HTTPException(500, {"code": "keep_failed", "message": "The workflow could not be saved"}) from exc
+        app.state.drafts.discard(token)
+        return summary(draft.id)
+
+    @app.delete("/api/v1/workflows/{workflow_id}")
+    async def delete_workflow(workflow_id: str, request: Request):
+        require_local(request)
+        if not workflow_id.startswith("custom-") or workflow_id not in app.state.workflows:
+            raise HTTPException(404, "Only created workflows can be deleted")
+        if app.state.recovery.active(workflow_id):
+            raise HTTPException(409, "A recovery is running; retry when it finishes")
+        # Runs hold the selector lock while they execute, so wait for them instead of pulling files out from under one.
+        lock = app.state.stores[workflow_id].lock(exclusive=True)
+        try:
+            async with asyncio.timeout(settings.lock_timeout):
+                await lock.__aenter__()
+        except TimeoutError:
+            raise HTTPException(409, "A run is in progress; retry when it finishes")
+        try:
+            custom.remove(app, settings, workflow_id)
+        finally:
+            await lock.__aexit__(None, None, None)
+        return {"deleted": workflow_id}
 
     @app.post("/api/v1/run-workflow", response_model=WorkflowExecutionResponse)
     async def run_workflow(request: WorkflowRequest):

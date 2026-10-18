@@ -3,5 +3,9 @@
 # Failure artifacts written by the runner on a failed run
 runs/
 
+# Workflows created from a sentence stay local
+contracts/workflows/custom-*.json
+contracts/selectors/custom-*.json
+
 __pycache__/
 *.pyc

@@ -2,8 +2,9 @@
 
 State of `services/backend` for a teammate or agent picking it up. The run guide is
 [README.md](README.md), the rules for agents are [AGENTS.md](AGENTS.md), and the project brief is
-[CLAUDE.md](CLAUDE.md). M1 to M3 are merged into `main` (PR #1), and the generic runner, per-workflow
-recovery and related work are merged in PR #2. The inventory demo upgrade is on `codex/records-site-demo`.
+[CLAUDE.md](CLAUDE.md). M1 to M3, the generic runner, per-workflow recovery, the review fixes, the redesigned dashboard
+and the inventory desk are merged into `main` (PRs #1 to #5). The public-site workflows (PR #6) and creating workflows
+from a sentence (PR #7, stacked on #6) are open pull requests at the time of writing.
 
 ## Status
 
@@ -11,16 +12,18 @@ recovery and related work are merged in PR #2. The inventory demo upgrade is on 
 | --- | --- |
 | M1 single-field recovery, M2 transactional multi-field recovery, M3 failure cooldown and finalized `heal_records` | Shipped, tested, merged |
 | Real runner and portal (Person 1) | Merged; speaks the agreed CLI; verified end to end |
-| Dashboard (Person 3) | Merged; verified in a real browser against the real backend |
-| Generic runner and per-workflow maps | `contracts/workflows/<id>.json` + `contracts/selectors/<id>.json`; the runner navigates to the map's `target_url`; four workflows on one backend (`permit-application`, `record-update`, and the public `wikipedia-article`, `python-latest-release`) |
+| Dashboard (Person 3) | Merged; redesigned (printed ledger, sticky glass header, scroll reveals, accumulating corrections); verified in a real browser against the real backend |
+| Generic runner and per-workflow maps | `contracts/workflows/<id>.json` + `contracts/selectors/<id>.json`; the runner navigates to the map's `target_url`; six workflows on one backend (four of them read-only) (`permit-application`, `record-update`, and the public `wikipedia-article`, `python-latest-release`) |
 | Read healing | A broken read selector is repaired from the values the agent saw, verified by replay and the canary |
 | Crash recovery, pruning | `state/inflight-<wf>.json` marker restored at startup; `runs/` keeps the newest 50 |
-| Write workflows (local sites only) | Shipped with a guard, a sandbox site, and a login-wall fail-fast |
+| Write workflows (local sites only) | Shipped with a guard, the inventory desk (12 items, filters, audit, supplier note, click-to-break Chaos), and a login-wall fail-fast |
+| Public-site workflows | `wikipedia-article`, `python-latest-release`, and the practice sites `books-travel-first-book` and `quotes-love-first-quote` (PR #6 and #7) |
+| Workflows created from a sentence | Wikipedia, python.org, Books to Scrape, Quotes to Scrape; read-only; draft, keep, delete (PR #7) |
 | Sentry | Tracing, Logs, AI agent monitoring, Profiling (backend) and Tracing + Session Replay (dashboard, project `mender-dashboard`), verified live; failed-recovery alert created |
 | Model comparison | 8 Gemini models, 90 paid trials; default is now `gemini-3.5-flash-lite` (see below) |
 | Cooldown field `cooldown_remaining_s` | In the contract, backend and dashboard (countdown) |
 
-Test status at the records-site demo run: backend 146 tests (33 opt-in skipped), browser selector/write suites 30 (2 paid tests skipped), real-runner suite 4 (1 paid test skipped), runner 12, `ruff` clean. Dashboard was unchanged; its previous result was 55 tests.
+Test status at the last run: backend 201 tests (with the browser, real-runner and public-site flags on, only the 5 paid Gemini tests skip; the default run skips 51), runner 12, dashboard 81, `ruff` clean.
 
 The endpoint builds the shared response model, dumps it once, and validates that same JSON with both
 the Pydantic model and the JSON Schema before returning it. All four contract fields are enabled
@@ -40,7 +43,7 @@ ran the agent, only when every invocation reported them, and never to joined req
 | [config.py](config.py) | Loads definitions from `contracts/workflows/` (shared `WorkflowDefinition`), `selectors_for(workflow)`, settings, `write_allowed`, `prune_runs`, runner interpreter default |
 | [reset.py](reset.py) | Restore from a backup or from git `HEAD` under the same lock |
 | [terminal.py](terminal.py) | Rich rendering without emojis; original records and telemetry preserved |
-| [sandbox/records_site.py](sandbox/records_site.py) | Legacy inventory price desk: seeded table, live shared updates and last-save time, Chaos Mode redesign, `hard` decoys, independent `read` drift; `/reset` restores seeds |
+| [sandbox/records_site.py](sandbox/records_site.py) | Legacy inventory price desk: seeded table, live shared updates and last-save time, click-to-break Chaos (three variants each for the button, Record ID box and saved value, decoys, a separate sign-in wall button, capped at two broken fields); `/reset` restores seeds |
 | [rehearse.py](rehearse.py), [rehearse_ui.py](rehearse_ui.py), [bench_models.py](bench_models.py) | Paid tools: API demo loops, real-browser dashboard loops, model comparison |
 | [proposals/](proposals) | Changes proposed to other owners (not applied) and a paste-ready message for Person 1 |
 
@@ -355,6 +358,33 @@ test that fails without the fix, 1 was fixed in part, and 1 is documented:
 - Since fixed: the runner now navigates to the selector map's `target_url`, so the write guard checks the page that
   is actually visited.
 
+## Creating workflows from a sentence (Wikipedia and python.org)
+
+Run as a spike first (the plan's go or no-go gate). First attempt: 0 of 6, and the failures were real defects found and
+fixed: hidden duplicate elements made a value look ambiguous (the read probe now ignores invisible elements, which also
+helps repairs); several visible elements showed the same text (a forgiving mode, used only for creation, prefers the one
+inside a heading, then the closest text); the agent shortened a value ("3.15.0" for "Python 3.15.0", so the page's own
+text is kept as the expected output); workflow ids must be hyphenated words (underscores made the runner exit with no
+artifact); and the planner turned "edit this article" and "log in and change my password" into read-only plans, which
+ran the agent on the site. That last one is why the request itself is checked for action words before any model call.
+After the fixes: 6 of 6 sentences worked (three Wikipedia headings, two python.org searches, and the newest release),
+7 to 17 s each, $0.0044 to $0.011 of agent cost each; the two unsafe sentences were refused in 0 s. Live through the
+dashboard: both built-in public workflows ran in about 50 ms of UI time on the fast path, a created workflow was built
+in 15 s for $0.0088, kept, ran in 1.3 s, and was deleted with its files. Total spend about 12 cents.
+
+First live user attempt with 'Look up Max Verstappen on Wikipedia and tell me the article heading' failed: Wikipedia showed a pop-up, the agent clicked 'Maybe later' and 'Close' before typing, those clicks were recorded as steps, and the replay failed without the pop-up. Fixed by dropping leading dismiss clicks (maybe later, close, dismiss, accept...) when the workflow has an input step, and by one automatic retry for failures where the agent merely took a different path (the retry never applies to safety refusals or timeouts; a failed attempt can cost a second cent). Backend logs now record the failure code. A pop-up that appears only during a later run is still not handled by the runner.
+
+Wikipedia and python.org proved brittle for demos (a pop-up, a search ranking that changes: 'PEP 8' on python.org returned 'Python 3.6.9' as its first result), so two practice sites built for scraping were added, with a built-in workflow each (`books-travel-first-book`, `quotes-love-first-quote`), and the dashboard suggests only sentences that were run for real. Batch of 10 candidate sentences: 10 of 10 built working workflows (9 to 17 s, $0.004 to $0.011), spend $0.059; the PEP 8 search was dropped from the suggestions because its answer is meaningless. Click-only workflows on the practice sites build in about 10 s for about 4 tenths of a cent.
+
+A code review of this work (11 findings) led to these fixes, each with a test that fails without it: failed creations count toward the hourly quota (refusals made before any model call do not); a preview survives a failed keep so the user does not pay twice; delete waits for in-flight runs (the shared selector lock) instead of pulling files out from under one; a broken created workflow is skipped at startup and can no longer put the whole backend into a configuration error; reported page text cannot be rewritten by the probe's placeholder substitution; the dashboard panel starts fresh per site and cannot save or delete mid-run; refusal messages name the word or the sites. Two findings were left alone on purpose: collapsing two identical consecutive clicks (a replay mismatch catches the rare legitimate case before anything is kept) and the explicit `{"break": ...}` chaos call ignoring the cap (documented, and tests and benchmarks need it).
+
+Known limits: only input and click steps (an agent that presses Enter, picks a dropdown option or navigates by URL is
+rejected as `unsupported_action`; the prompt tells it not to, and 6 of 6 complied); some derived selectors are
+structural (`li:nth-of-type(1) > h3 > a`) and may break on a redesign, which repair then handles; a search result
+ranking can change (python.org's first result for `asyncio` was a job posting), so the repair canary for such a workflow
+goes stale; the veto and the action-word list are deliberately blunt (a request that merely contains "add" is refused);
+drafts are in memory and expire after 15 minutes; custom workflows are local files.
+
 ## Open items and limits
 
 - **Warm driver.** Playwright import and driver start cost about 197 ms of the 367 ms fast path. A persistent
@@ -391,7 +421,19 @@ test that fails without the fix, 1 was fixed in part, and 1 is documented:
 - **Cooldown fingerprint.** A site whose failure DOM snippet contains dynamic content (a token or a clock) makes
   every failure look new, so the cooldown never hits. Safe, but it defeats the feature.
 - **Dashboard.** History is in memory, so the first real heal replaces the "n/a" cards only for that session.
-  Reset is a button, but Chaos Mode is still turned off on the portal.
+  Reset is a button, but Restore site is still clicked on the portal (or `POST /chaos {"enabled": false}`).
+- **Speed card baseline.** The "N times faster than an agent on every run" figure uses a real agent run of the same
+  workflow from the session when there is one (a repair run, which also verifies and commits, so it flatters Mender a
+  little). Before that it falls back to per-workflow constants in `BenchmarkSummary.tsx` taken from our own trials, so
+  they do not move with anything the viewer does. A live agent-only run that measures the task from scratch is not built
+  (roughly half a day, paid, needs a new loopback endpoint).
+- **Typed input only where there is typed text.** Only Wikipedia (and created workflows with a typed parameter) has an
+  input box. Books, Quotes and python.org click fixed links, so there is nothing to swap. A `param` on a click step
+  (click the link whose text is the value) would fix Books and Quotes; it touches the runner, the contract, the
+  healer's matching and creation, and is not built.
+- **Permit portal break.** Break something on the portal was checked live with the status badge and the permit box
+  broken together: both repaired in 27.7 s and committed. The other variants are covered by browser checks and unit
+  tests, not by a paid repair each.
 
 If restoration or cleanup fails, inspect the logged reason, preserve the baseline, stop owned resources, reset
 under the same lock, and restart before retrying (a restart alone also retries it through the in-flight marker).

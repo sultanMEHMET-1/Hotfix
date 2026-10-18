@@ -121,12 +121,19 @@ describe("the redesigned result views", () => {
     evidence: { action_type: "click", history_step: 0, action_index: 0, node_name: "BUTTON", accessible_name: "Save record", attributes: {}, reasoning: "internal reasoning text" },
   });
 
-  it("headlines the ratio, and says n/a before both paths have run", () => {
+  it("headlines how much faster the fast path is than an agent on every run, and says n/a before a run", () => {
     const { rerender } = render(<BenchmarkSummary benchmarks={{ fastMs: 100, healMs: 3000, healCost: 0.01 }} />);
     expect(screen.getByText("30×")).toBeInTheDocument();
-    expect(screen.getByText("slower with the agent")).toBeInTheDocument();
+    expect(screen.getByText("faster than an agent on every run")).toBeInTheDocument();
+    expect(screen.getByText(/Against the agent run you just measured/)).toBeInTheDocument();
     expect(screen.queryByText(/Cached cost/)).toBeNull();
     expect(screen.getByText("3.0")).toBeInTheDocument();
+    rerender(<BenchmarkSummary benchmarks={{ fastMs: 100, healMs: null, healCost: null }} />);
+    expect(screen.getByText("110×")).toBeInTheDocument();
+    expect(screen.getByText(/about 11 s and half a cent, from our own trials/)).toBeInTheDocument();
+    rerender(<BenchmarkSummary benchmarks={{ fastMs: 100, healMs: null, healCost: null }} workflowId="record-update" />);
+    expect(screen.getByText("140×")).toBeInTheDocument();
+    expect(screen.getByText(/about 14 s and 0.6 of a cent/)).toBeInTheDocument();
     rerender(<BenchmarkSummary benchmarks={EMPTY_BENCHMARKS} />);
     expect(screen.getAllByText("n/a").length).toBeGreaterThan(1);
   });

@@ -1,0 +1,52 @@
+{
+  "goal": "Click the love tag on Quotes to Scrape and report the first quote and its author.",
+  "steps": [
+    {
+      "field": "click_love",
+      "action_type": "click",
+      "label": "love"
+    }
+  ],
+  "outputs": {
+    "quote": {
+      "field": "first_quote",
+      "read": "text"
+    },
+    "author": {
+      "field": "first_author",
+      "read": "text"
+    }
+  },
+  "params_schema": {
+    "type": "object",
+    "required": [],
+    "additionalProperties": false,
+    "properties": {}
+  },
+  "output_schema": {
+    "type": "object",
+    "required": [
+      "quote",
+      "author"
+    ],
+    "additionalProperties": false,
+    "properties": {
+      "quote": {
+        "type": "string",
+        "description": "the first quote shown"
+      },
+      "author": {
+        "type": "string",
+        "description": "who said it"
+      }
+    }
+  },
+  "canary": {
+    "params": {},
+    "expected_output": {
+      "quote": "\u201cIt is better to be hated for what you are than to be loved for what you are not.\u201d",
+      "author": "Andr\u00e9 Gide"
+    }
+  },
+  "mutates": false
+}

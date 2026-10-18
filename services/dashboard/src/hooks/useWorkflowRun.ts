@@ -83,6 +83,8 @@ export function useWorkflowRun(mocksOn: boolean = USE_MOCKS, workflowId?: string
   const [result, setResult] = useState<WorkflowExecutionResponse | null>(null);
   const [error, setError] = useState<Error | null>(null);
   const [history, setHistory] = useState<RunHistoryEntry[]>([]);
+  // Which workflow the latest run was for, so its result and error are not shown on another workflow's tab.
+  const [ranFor, setRanFor] = useState<string | null>(null);
 
   const runIdRef = useRef(0);
   const controllerRef = useRef<AbortController | null>(null);
@@ -108,6 +110,7 @@ export function useWorkflowRun(mocksOn: boolean = USE_MOCKS, workflowId?: string
   const trigger = useCallback(
     ({ scenario, workflow }: TriggerOptions) => {
       cancelInFlight();
+      setRanFor(workflow?.id ?? DEFAULT_WORKFLOW.id);
       const runId = ++runIdRef.current;
       const controller = new AbortController();
       controllerRef.current = controller;
@@ -168,5 +171,11 @@ export function useWorkflowRun(mocksOn: boolean = USE_MOCKS, workflowId?: string
     [history, mocksOn, workflowId],
   );
 
-  return { phase, result, error, history, benchmarks, trigger };
+  // Another workflow's finished run is not this one's: show it as not run yet. A run in flight always shows.
+  const running = phase === "running-fast" || phase === "running-healing";
+  const foreign = !running && workflowId !== undefined && ranFor !== null && ranFor !== workflowId;
+  return {
+    phase: foreign ? "idle" : phase, result: foreign ? null : result, error: foreign ? null : error,
+    history, benchmarks, trigger,
+  };
 }

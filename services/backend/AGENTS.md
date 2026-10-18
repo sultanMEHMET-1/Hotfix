@@ -13,11 +13,12 @@ These instructions supplement the repository and global AGENTS.md instructions.
 
 ## Current scope and boundaries
 
-- M1 (single field), M2 (transactional multi-field recovery) and M3 (failure cooldown,
-  finalized `heal_records`, reset and status endpoints) are merged into `main` (PR #1). The
-  generic runner, per-workflow maps, read healing, crash recovery, `cooldown_remaining_s`,
-  the workflow picker and the Sentry products are on branch `codex/browser-use-recovery`
-  (PR for the user to merge; never merge it yourself). New work needs an explicit instruction.
+- M1 (single field), M2 (transactional multi-field recovery), M3 (failure cooldown,
+  finalized `heal_records`, reset and status endpoints), the generic runner, per-workflow maps,
+  read healing, crash recovery, `cooldown_remaining_s`, the Sentry products, the redesigned
+  dashboard and the inventory desk are merged into `main` (PRs #1 to #5). The public-site
+  workflows (PR #6) and creating workflows from a sentence (PR #7) are open pull requests for
+  the user to merge; never merge them yourself. New work needs an explicit instruction.
 - Backend source, tests, fixtures, and docs belong under `services/backend/`. The portal,
   runner, dashboard, and `contracts/` belong to other owners. Changes there need an explicit
   instruction, go in their own commit, and stay reviewable on their own. Runtime selector
@@ -72,6 +73,11 @@ These instructions supplement the repository and global AGENTS.md instructions.
   logs stay as Sentry Logs). Keep the `tier` tag (`deterministic` or `agent`), the stable
   fingerprints, the `gen_ai.*` agent span attributes, the `runner.<phase>_ms` span data, profiling,
   and the flat `recovery.*` attributes on the `healer.summary` span (reliable values only). The failed-recovery alert filters on `tier:agent`.
+- Workflow creation (`author.py`, `custom.py`): the site is a fixed start URL, never a caller-supplied
+  one; requests with action words are refused before any model call; the pre-action veto and the
+  read-only prompt stay; nothing is written until a preview is kept; files are written map first;
+  quotas and loopback-only access stay; a failed attempt counts toward the hourly quota. The
+  forgiving read probe is for creation only, never for repairs.
 - Terminal output uses Rich without emojis. Keep cleanup in the renderer; preserve original
   log records, literal selectors, errors, and Sentry context.
 

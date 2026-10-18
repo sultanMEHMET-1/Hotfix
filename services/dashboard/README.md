@@ -1,35 +1,38 @@
 # Mender Dashboard (`/services/dashboard`)
 
-Owner: Person 3. A React + Vite + Tailwind single-page app that runs a workflow through the Mender backend and shows how it was served: the deterministic fast path, or a repair by the Browser Use agent (with the old and new selectors, the version history, the cost, and a Sentry trace link). It consumes `WorkflowExecutionResponse` and `WorkflowSummary` from `contracts/api_types.ts` (imported read-only through the `@contracts` alias).
+Owner: Person 3. A React + Vite + Tailwind single-page app that runs a workflow through the Mender backend and shows how it was served: the deterministic fast path, or a repair by the Browser Use agent (with the old and new selectors, the cost, and a Sentry trace link). It also lets you create a new read-only workflow from a sentence on four public sites. It consumes `WorkflowExecutionResponse` and `WorkflowSummary` from `contracts/api_types.ts` (imported read-only through the `@contracts` alias).
 
 ## Design
-The look is a printed lab ledger: vellum paper, hard ink rules, and a rule that an applied result is printed while one that was not applied is only drawn. The built system is described in `design/DESIGN.md`; `design/DIRECTION.md` has the original notebook idea and `design/PAPER_PROMPT.md` the first brief. The Paper exports are the earlier direction, kept as history.
+
+The look is a printed lab ledger: vellum paper (warm espresso in dark mode), hard ink rules, and a rule that an applied result is printed while one that was not applied is only drawn. Type is Instrument Sans for headings, Space Grotesk for text, IBM Plex Mono for every measured value and selector. The header is a sticky frosted bar with a single moon and sun icon that flips the theme (applied before first paint, so a refresh never flashes the other one). Sections blur-fade in once as they scroll into view, and tooltips are a few words. The built system is described in `design/DESIGN.md`; `design/DIRECTION.md` has the original notebook idea and `design/PAPER_PROMPT.md` the first brief. The Paper exports are the earlier direction, kept as history.
 
 ## Run
+
 ```bash
 npm ci
 npm run dev        # http://127.0.0.1:5173 (bound to localhost on purpose, see below)
-npm run typecheck && npm test   # 63 tests, independent of any .env.local
+npm run typecheck && npm test   # 84 tests, independent of any .env.local
 npm run build
 ```
 
-## Live mode against the real backend
+## Live and sample modes
 
-Start the portal and backend (see the root README), then:
+The **Live** switch (outlined while off, filled while on) chooses where responses come from:
 
-```bash
-VITE_USE_MOCKS=false npm run dev
-```
+- **Off (sample data, no backend needed).** Responses are the contract fixtures in `contracts/fixtures/workflow_*.json`. **Fast**, **Heal** and **Rollback** buttons pick which canned outcome the next Trigger returns (Fast after about 300 ms, the others after 5 s). Useful for rehearsing the screens and for a demo without an API key. The speed card shows fixture figures, labelled as samples.
+- **On (the real backend).** Start the portal and backend (see the root README), then `VITE_USE_MOCKS=false npm run dev`, or put the variables in the git-ignored `.env.local` (start from `.env.example`). The dev server proxies `/api` to `localhost:8000`, so no CORS setup is needed, and it binds to `127.0.0.1` because the backend trusts the proxy as a loopback caller for its admin and creation endpoints. Do not run it with `--host` or a tunnel while the backend is live.
 
-Or put the variables in the git-ignored `.env.local` (start from `.env.example`). The dev server proxies `/api` to `localhost:8000`, so no CORS setup is needed, and it binds to `127.0.0.1` because the backend trusts the proxy as a loopback caller for its admin endpoints. Do not run it with `--host` or a tunnel while the backend is live.
+What the UI does:
 
-What the UI does in live mode:
-
-- **Workflow picker.** The dashboard asks `GET /api/v1/workflows` and offers each workflow (the permit lookup, and the record editor, badged "writes" because it changes data). **Trigger workflow** runs the selected one with its example parameters: `POST /api/v1/run-workflow {"workflow": <id>, "params": {...}}`.
-- **Reset selectors.** Calls the backend's loopback-only `POST /api/v1/admin/reset` for the selected workflow, to put its original selectors back between demo runs. It is disabled while a run is in progress, shows the backend's own message if it refuses, and says so if the backend stays blocked.
-- **Honest numbers.** Until a real run exists, the speed and cost cards show "n/a" (mock mode shows fixture placeholders instead). Cost is "Unknown" when the backend did not report one.
-- **Failures say what happened.** "Reverted after a failed recovery" only when a `rolled_back` record exists, "Recovery failed, no selector changed" otherwise, "Rollback failed, operator action needed" if the rollback itself failed. A request error (the backend is down or blocked) is shown instead of "Idle". A repeat of a failure inside the 15 s cooldown shows a live "retry in N s" countdown from `cooldown_remaining_s`.
-- **View Sentry trace.** Links to `https://<org>.sentry.io/explore/traces/trace/<trace_id>/`.
+- **Workflow picker.** Asks `GET /api/v1/workflows` and offers each workflow by the name of its site (Permit portal, Inventory desk marked "writes", Wikipedia, Python releases, Books, Quotes; a created workflow is named by its goal). The title reads "Selected: <name>". The Corrections section appears once a run exists. **Trigger workflow** runs the selected one with its example parameters: `POST /api/v1/run-workflow {"workflow": <id>, "params": {...}}`. A finished run's result, status and error show only on the workflow it ran for.
+- **Typed input** (live, public sites only). A read-only public workflow with a text parameter (Wikipedia's article title) shows a labelled box above **Trigger workflow**, filled with the example. Enter runs it, an empty box disables the trigger and says why, and the value is sent as the workflow's parameter. Values are kept per workflow until reload. Sample mode, the permit portal and the inventory desk keep their fixed examples.
+- **Result.** A finished run prints what it read (for example `heading  Ada Lovelace`) under the controls, as a ledger line in the monospace face.
+- **Reset selectors** (live only). Calls the backend's loopback-only `POST /api/v1/admin/reset` for the selected workflow, to put its original selectors back between demo runs. It is disabled while a run is in progress, shows the backend's own message if it refuses, and says so if the backend stays blocked.
+- **Corrections pile up.** Every repair this session stays in the Corrections list, newest first, one group per run (a rolled-back attempt too), shown as diffs with one plain sentence on what the agent did. A run that changes nothing neither adds nor removes anything. **Clear corrections** hides them, and a successful **Reset selectors** clears the selected workflow's list, since the repairs were undone. The list is per workflow and lives in the page, so a reload empties it.
+- **Create from a sentence** (its own mode). The last picker button, **+ New**, swaps the run area for the create flow, so nothing runnable is on screen while you build: choose a site (Wikipedia, python.org, Books, Quotes), click a sentence that was run for real or write your own, and **Create workflow** (under a minute, about a cent, with a live clock). A preview shows the steps in plain words, the sample JSON result, cost and time to **Save** or **Discard**. Nothing runs until saved; saving selects the new workflow in the picker, where **Delete workflow** removes it again. Changing the site starts fresh. The backend's own refusal message is shown as it is.
+- **Honest numbers.** Until a real run exists, the speed card shows "n/a". Durations read as ms, then s, then minutes. Only the agent has a cost (a fast run never calls a model); it shows "Unknown" when the backend did not report one, never $0.
+- **Failures say what happened.** "Reverted after a failed recovery" only when a `rolled_back` record exists, "Recovery failed, no selector changed" otherwise, "Rollback failed, operator action needed" if the rollback itself failed. A request error (the backend is down or blocked) is shown as such. A repeat of a failure inside the 15 s cooldown shows a live "retry in N s" countdown from `cooldown_remaining_s`.
+- **View Sentry trace.** Links to `https://<org>.sentry.io/explore/traces/trace/<trace_id>/` (set `VITE_SENTRY_ORG`).
 
 ## Sentry in the browser
 
@@ -40,9 +43,4 @@ Set `VITE_SENTRY_DSN` (a JavaScript project) and the dashboard starts `@sentry/r
 
 Without a DSN, nothing is sent. Tests pin their own environment (`vite.config.ts`), so they never read `.env.local` or send events.
 
-## Mocks and the hour-15 handshake
-- `VITE_USE_MOCKS=true` (default): responses are the contract fixtures in `contracts/fixtures/workflow_*.json`, and the workflow picker offers two canned workflows. The **Fast** scenario returns after ~300ms; **Heal** and **Rollback** return after 5s.
-- Handshake: copy `.env.example` to `.env.local`, set `VITE_USE_MOCKS=false`, and start the backend on `:8000`.
-- `VITE_SENTRY_ORG` enables the "View Sentry trace" deep-link.
-
-A browser rehearsal of the whole demo through this UI (reset, fast run, Chaos Mode, heal, fast run) lives in `services/backend/rehearse_ui.py`.
+A browser rehearsal of the whole demo through this UI (reset, fast run, break the portal, heal, fast run) lives in `services/backend/rehearse_ui.py`.

@@ -10,6 +10,7 @@ Changing any file here requires a team agreement, except the runtime updates the
 | --- | --- |
 | `workflows/<workflow_id>.json` | A workflow any runner can execute: ordered steps, how each output is read, schemas, a canary. The only place definitions live. |
 | `workflow.schema.json` | JSON Schema for a workflow definition (generated from `WorkflowDefinition`). |
+| `workflows/custom-*.json`, `selectors/custom-*.json` | Workflows created from a sentence in the dashboard. Same format, written by the backend, ignored by git (see the backend README). |
 | `selectors/<workflow_id>.json` | The selector map for one workflow: its page URL and a CSS selector per field. Rewritten by the healer. |
 | `selectors.schema.json` | Schema for a selector map. |
 | `failure_payload.schema.json` | Schema for a timeout or selector-miss artifact. |
@@ -19,7 +20,7 @@ Changing any file here requires a team agreement, except the runtime updates the
 | `api_types.py` | Pydantic v2 models matching the schemas (`WorkflowDefinition`, `WorkflowSummary`, `WorkflowExecutionResponse`, ...). |
 | `api_types.ts` | TypeScript interfaces with the same shapes for the dashboard. |
 
-Today there are four workflows: `permit-application` (the mock permit portal), `record-update` (a local record editor that really changes a value, so it is marked `mutates`), and two read-only workflows on real public sites: `wikipedia-article` (search an article title, read its heading) and `python-latest-release` (click Downloads on python.org, read the newest release). The python.org canary names the release that was current when it was written, so it goes stale when python.org ships a new one; that only affects repair verification, not the fast path.
+Today there are six workflows: `permit-application` (the mock permit portal), `record-update` (a local record editor that really changes a value, so it is marked `mutates`), and four read-only workflows on real public sites: `wikipedia-article` (search an article title, read its heading), `python-latest-release` (click Downloads on python.org, read the newest release), and the practice sites `books-travel-first-book` and `quotes-love-first-quote` (click a category or tag, read the first item; their content is fixed). The python.org canary names the release that was current when it was written, so it goes stale when python.org ships a new one; that only affects repair verification, not the fast path.
 
 ## Workflow definitions
 

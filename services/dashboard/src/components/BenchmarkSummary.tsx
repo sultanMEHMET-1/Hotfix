@@ -5,24 +5,45 @@ export interface BenchmarkSummaryProps {
   benchmarks: Benchmarks;
   /** True while the figures are fixture baselines rather than a real run, so they are never passed off as measured. */
   sample?: boolean;
+  /** Which workflow the figures are for, so the benchmark fallback matches it. */
+  workflowId?: string;
 }
 
-export default function BenchmarkSummary({ benchmarks, sample = false }: BenchmarkSummaryProps) {
+/** What an agent doing each workflow's task costs per run, from our own trials (permit and inventory: the model and paired benchmarks; public sites: the live repair and creation runs). Used only until a real agent run exists. */
+const AGENT_BASELINE: Record<string, { ms: number; cost: string }> = {
+  "permit-application": { ms: 11000, cost: "half a cent" },
+  "record-update": { ms: 14000, cost: "0.6 of a cent" },
+  "wikipedia-article": { ms: 15000, cost: "under a cent" },
+  "python-latest-release": { ms: 15000, cost: "under a cent" },
+  "books-travel-first-book": { ms: 10000, cost: "0.4 of a cent" },
+  "quotes-love-first-quote": { ms: 10000, cost: "0.4 of a cent" },
+};
+const DEFAULT_BASELINE = { ms: 11000, cost: "half a cent" };
+
+export default function BenchmarkSummary({ benchmarks, sample = false, workflowId }: BenchmarkSummaryProps) {
+  const baseline = (workflowId && AGENT_BASELINE[workflowId]) || DEFAULT_BASELINE;
   const { fastMs, healMs } = benchmarks;
-  const ratio = fastMs !== null && healMs !== null && fastMs > 0 ? healMs / fastMs : null;
+  // The agent side is a real run of this workflow in this session when there is one, else the benchmark figure.
+  const agentMs = healMs ?? baseline.ms;
+  const ratio = fastMs !== null && fastMs > 0 ? agentMs / fastMs : null;
   // Both bars share one scale, so the picture is the same as the numbers: the agent run is the long one.
   const scale = Math.max(fastMs ?? 0, healMs ?? 0);
   const pct = (ms: number | null) => (ms === null || scale === 0 ? null : Math.max((ms / scale) * 100, 2));
 
   return (
     <section aria-labelledby="measure-title" className="mt-12">
-      <h2 id="measure-title" className="text-xl">Cached run against agent repair</h2>
+      <h2 id="measure-title" className="text-xl">Cached run against the agent</h2>
       <div className="mt-5 grid border-y-[1.5px] border-ink md:grid-cols-[1fr_1fr_minmax(0,0.8fr)]">
         <Measure label="Fast replay" ms={fastMs} width={pct(fastMs)} tone="success" />
         <Measure label="Agent re-indexing" ms={healMs} width={pct(healMs)} tone="warning" cost={benchmarks.healCost} showCost />
         <div className="flex flex-col justify-center border-t-[1.5px] border-ink px-1 py-6 md:border-l-[1.5px] md:border-t-0 md:px-8">
           <span className="font-display text-hero text-ink">{ratio !== null ? `${Math.round(ratio)}×` : "n/a"}</span>
-          <span className="mt-3 text-sm text-ink-muted">{ratio !== null ? "slower with the agent" : "Run both to compare"}</span>
+          <span className="mt-3 text-sm text-ink-muted">{ratio !== null ? "faster than an agent on every run" : "Run it once to compare"}</span>
+          {ratio !== null && (
+            <span className="mt-1 text-sm text-ink-muted">
+              {healMs !== null ? "Against the agent run you just measured." : `Agent every run on this workflow: about ${Math.round(baseline.ms / 1000)} s and ${baseline.cost}, from our own trials.`}
+            </span>
+          )}
         </div>
       </div>
       {sample && <p className="mt-3 text-sm text-ink-muted">Sample figures from fixtures. Run the workflow for measured numbers.</p>}
