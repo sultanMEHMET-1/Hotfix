@@ -2,6 +2,7 @@
 
 import asyncio
 from contextlib import asynccontextmanager
+import json
 import logging
 import math
 import time
@@ -15,7 +16,7 @@ from sentry_sdk.integrations.logging import LoggingIntegration
 from contracts.api_types import RecoveryError, WorkflowExecutionResponse, WorkflowSummary
 from .config import BackendError, Settings, load_workflows, prune_runs, read_json, validator, write_allowed
 from .recovery import Recovery
-from .reset import restore_original
+from .reset import committed_selectors, restore_original
 from .runner import Runner
 from .store import SelectorStore
 from .terminal import configure_logging
@@ -148,17 +149,27 @@ def create_app(settings=None):
         require_local(request)
         if app.state.configuration_error and not getattr(app.state, "stores", None):
             raise HTTPException(503, app.state.configuration_error)
+        raw = await request.body()
         try:
-            body = await request.json()
+            body = json.loads(raw) if raw.strip() else {}
         except ValueError:
-            body = {}
-        target = body.get("workflow") if isinstance(body, dict) else None
+            raise HTTPException(422, "Body must be JSON")
+        if not isinstance(body, dict) or not isinstance(body.get("workflow"), (str, type(None))):
+            raise HTTPException(422, "Body must be an object with an optional string 'workflow'")
+        target = body.get("workflow")
         if target is not None and target not in app.state.stores:
             raise HTTPException(404, "Unknown workflow")
         names = [target] if target else sorted(app.state.stores)
         recovery = app.state.recovery
         if any(recovery.active(name) for name in names):
             raise HTTPException(409, "A recovery is running; retry when it finishes")
+        # Fetch every committed map first, so a map missing from git cannot leave some workflows reset.
+        try:
+            originals = {name: await committed_selectors(settings, name) for name in names}
+        except Exception:
+            log.exception("Reset failed")
+            sentry_sdk.capture_exception()
+            raise HTTPException(500, "Reset failed before any change; see backend logs")
         versions = {}
         # One workflow at a time, never nested, so two resets cannot deadlock against each other.
         for name in names:
@@ -170,7 +181,7 @@ def create_app(settings=None):
             except TimeoutError:
                 raise HTTPException(409, "Selector map busy")
             try:
-                versions[name] = await restore_original(settings, store)
+                versions[name] = restore_original(store, originals[name])
             except Exception:
                 log.exception("Reset failed")
                 sentry_sdk.capture_exception()
@@ -179,8 +190,8 @@ def create_app(settings=None):
                 await lock.__aexit__(None, None, None)
             recovery.cooldown.pop(name, None)
         log.info("Original selectors restored (%s); cooldown cleared", versions, extra={"phase": "ROLLBACK"})
-        default = app.state.default_workflow
-        return {"version": versions.get(default) or next(iter(versions.values())), "versions": versions,
+        default = getattr(app.state, "default_workflow", None)
+        return {"version": versions.get(default) or next(iter(versions.values()), None), "versions": versions,
                 "blocked": app.state.configuration_error}
 
     @app.post("/api/v1/run-workflow", response_model=WorkflowExecutionResponse)

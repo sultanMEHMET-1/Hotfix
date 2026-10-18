@@ -48,7 +48,7 @@ These instructions supplement the repository and global AGENTS.md instructions.
 - At most three agent invocations, a 240-second recovery budget with 30 seconds reserved for
   cleanup, and a five-second ordinary lock acquisition limit.
 - Agent errors, timeouts, no-result and `agent_blocked` (the agent gave up, for example at a login or
-  access wall) may retry within the cap. Ambiguous evidence, invalid candidates, and
+  access wall) may retry within the cap. This is deliberate and measured; a real login wall costs up to three runs before failing. Ambiguous evidence, invalid candidates, and
   same/earlier-step replay failures abort.
 - Every selector write, including rollback and reset, advances the version. Rollback
   failure blocks further execution until reset and server restart.

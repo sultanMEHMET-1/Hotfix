@@ -16,11 +16,11 @@ import RunLog from "./components/RunLog";
 
 export default function App() {
   const [mocksOn, setMocksOn] = useState(USE_MOCKS);
-  const { phase, result, error, benchmarks, history, trigger } = useWorkflowRun(mocksOn);
   const [scenario, setScenario] = useState<MockScenario>("fast");
   const [workflows, setWorkflows] = useState<WorkflowSummary[]>([DEFAULT_WORKFLOW]);
   const [workflowId, setWorkflowId] = useState(DEFAULT_WORKFLOW.id);
   const workflow = workflows.find((w) => w.id === workflowId) ?? workflows[0];
+  const { phase, result, error, benchmarks, history, trigger } = useWorkflowRun(mocksOn, workflow.id);
 
   // Ask the backend what it can run (mock mode offers two canned workflows).
   useEffect(() => {

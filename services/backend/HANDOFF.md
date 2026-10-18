@@ -353,6 +353,11 @@ test that fails without the fix, 1 was fixed in part, and 1 is documented:
   OS stall. POSIX locks and process groups, one uvicorn worker, and an in-memory cooldown are demo constraints.
   `configuration_error` is global, not per workflow. Subprocess output is buffered in memory with no size
   limit and there is no load testing. Iframes and dynamic or duplicate labels may fail grounding.
+- **Read repair on a write workflow.** The agent, the replay and the canary each re-run the write, because the
+  sandbox page only shows the saved value after a save. This is covered by the rule that `mutates` workflows must be
+  repeat-safe.
+- **Definition checks.** Startup does not verify that a definition is runnable by the runner (it needs `outputs` and
+  a `param` on each input step); the runner rejects such a definition with exit 2 at request time.
 - **Cooldown fingerprint.** A site whose failure DOM snippet contains dynamic content (a token or a clock) makes
   every failure look new, so the cooldown never hits. Safe, but it defeats the feature.
 - **Dashboard.** History is in memory, so the first real heal replaces the "n/a" cards only for that session.

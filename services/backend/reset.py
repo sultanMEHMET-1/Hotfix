@@ -34,9 +34,8 @@ async def committed_selectors(settings, workflow_id):
     return json.loads(stdout)
 
 
-async def restore_original(settings, store):
-    """Restore the committed map as a new higher version. The caller holds the exclusive lock."""
-    original = await committed_selectors(settings, store.workflow_id)
+def restore_original(store, original):
+    """Restore a committed map as a new higher version. The caller holds the exclusive lock."""
     store.check.validate(original)
     if store.read()["workflow_id"] != original["workflow_id"]:
         raise ValueError("The committed selector map belongs to another workflow")
@@ -45,10 +44,12 @@ async def restore_original(settings, store):
 
 async def restore_committed(workflows):
     settings = Settings.from_env()
-    for workflow_id in workflows or sorted(path.stem for path in (settings.root / "contracts/selectors").glob("*.json")):
+    names = workflows or sorted(path.stem for path in (settings.root / "contracts/selectors").glob("*.json"))
+    originals = {name: await committed_selectors(settings, name) for name in names}  # all or nothing
+    for workflow_id in names:
         store = SelectorStore(settings, workflow_id)
         async with store.lock(exclusive=True):
-            version = await restore_original(settings, store)
+            version = restore_original(store, originals[workflow_id])
         print(f"{workflow_id}: original selectors restored as selector version {version}")
 
 

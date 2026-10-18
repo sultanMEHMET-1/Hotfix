@@ -69,6 +69,11 @@ class SelectorBrowserTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual((found["count"], found["selector"], found["tag"]), (1, 'span[data-testid="status"]', "SPAN"))
         self.assertEqual(found["attributes"], {"data-testid": "status"})
 
+    async def test_read_probe_gives_up_when_it_runs_out_of_time(self):
+        await self.page.set_content('<span data-testid="status">Approved</span>')
+        self.assertEqual((await self.page.evaluate(read_selector_expression(["Approved"], budget_ms=-1)))["count"], -1)
+        self.assertEqual((await self.probe("Approved"))["count"], 1)
+
     async def test_read_probe_ignores_wrappers_that_only_contain_the_match(self):
         await self.page.set_content('<div id="outer"><div id="inner"><span data-testid="status">Approved</span></div></div>')
         self.assertEqual((await self.probe("Approved"))["selector"], 'span[data-testid="status"]')

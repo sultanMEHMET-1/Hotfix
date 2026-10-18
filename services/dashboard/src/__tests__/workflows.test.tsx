@@ -6,7 +6,7 @@ import App from "../App";
 import { listWorkflows, resetDemo, runWorkflow } from "../api/client";
 import WorkflowPicker from "../components/WorkflowPicker";
 import { setUseMocks } from "../config";
-import { computeBenchmarks, EMPTY_BENCHMARKS } from "../hooks/useWorkflowRun";
+import { computeBenchmarks, EMPTY_BENCHMARKS, type RunHistoryEntry } from "../hooks/useWorkflowRun";
 import { initSentry } from "../sentry";
 
 const permit: WorkflowSummary = { id: "permit-application", goal: "Look up a permit", mutates: false, default: true,
@@ -95,6 +95,20 @@ describe("App with several workflows (mock mode)", () => {
 describe("benchmarks never invent a figure", () => {
   it("falls back to the placeholders it is given, and to n/a (null) in live mode", () => {
     expect(computeBenchmarks([], EMPTY_BENCHMARKS)).toEqual({ fastMs: null, healMs: null, fastCost: null, healCost: null });
+  });
+});
+
+describe("benchmarks follow the selected workflow", () => {
+  const entry = (workflowId: string, ms: number, status: "success" | "healed"): RunHistoryEntry => ({
+    id: `${workflowId}-${ms}`, workflowId, startedAt: 0, costUsd: status === "healed" ? 0.01 : 0,
+    response: { ...success, status, execution_time_ms: ms, healed: status === "healed" },
+  });
+  const history = [entry("record-update", 16000, "healed"), entry("permit-application", 300, "success")];
+
+  it("does not compare a permit fast run with a record-update heal", () => {
+    expect(computeBenchmarks(history, EMPTY_BENCHMARKS, "permit-application")).toMatchObject({ fastMs: 300, healMs: null });
+    expect(computeBenchmarks(history, EMPTY_BENCHMARKS, "record-update")).toMatchObject({ fastMs: null, healMs: 16000 });
+    expect(computeBenchmarks(history, EMPTY_BENCHMARKS)).toMatchObject({ fastMs: 300, healMs: 16000 });  // no filter given
   });
 });
 
