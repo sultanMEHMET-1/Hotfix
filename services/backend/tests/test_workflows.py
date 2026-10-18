@@ -128,7 +128,7 @@ class MultiWorkflowTests(M2Harness):
     async def test_reset_works_when_startup_stopped_before_the_default_workflow_was_chosen(self):
         for path, base in ((self.path, self.baseline), (self.other_path, self.other_baseline)):
             path.write_text(json.dumps({**base, "version": 3, "fields": {**base["fields"], "submit_button": "#drifted"}}))
-        self.multi.state.default_workflow = None
+        del self.multi.state.default_workflow
         reply = (await self.multi_client.post("/api/v1/admin/reset")).json()
         self.assertEqual(reply["versions"], {"other-lookup": 4, "sample-lookup": 4})
         self.assertIsNotNone(reply["version"])

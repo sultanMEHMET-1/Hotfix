@@ -66,7 +66,6 @@ def create_app(settings=None):
             profile_session_sample_rate=1.0, profile_lifecycle="trace",
         )
         app.state.configuration_error = None
-        app.state.default_workflow = None
         app.state.diagnose = None
         try:
             timeouts = (settings.runner_timeout, settings.agent_timeout, settings.recovery_timeout,
@@ -191,7 +190,7 @@ def create_app(settings=None):
                 await lock.__aexit__(None, None, None)
             recovery.cooldown.pop(name, None)
         log.info("Original selectors restored (%s); cooldown cleared", versions, extra={"phase": "ROLLBACK"})
-        default = app.state.default_workflow
+        default = getattr(app.state, "default_workflow", None)
         return {"version": versions.get(default) or next(iter(versions.values()), None), "versions": versions,
                 "blocked": app.state.configuration_error}
 
