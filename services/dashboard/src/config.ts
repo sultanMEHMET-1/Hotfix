@@ -16,5 +16,6 @@ export function setUseMocks(value: boolean): void {
 export const API_BASE: string = env.VITE_API_BASE ?? "";
 
 export const RUN_WORKFLOW_PATH = "/api/v1/run-workflow";
+export const RESET_PATH = "/api/v1/admin/reset";
 
 export const SENTRY_ORG: string = env.VITE_SENTRY_ORG ?? "";

@@ -2,6 +2,7 @@ import type { WorkflowExecutionResponse } from "@contracts/api_types";
 import type { MockScenario } from "../api/mocks";
 import { executionPathLabel } from "../lib/cost";
 import type { RunPhase } from "../hooks/useWorkflowRun";
+import ResetButton from "./ResetButton";
 import StatusBadge, { badgeState, failedCopy } from "./StatusBadge";
 
 const SCENARIOS: { value: MockScenario; label: string }[] = [
@@ -43,6 +44,8 @@ export default function ControlRow({ phase, result, scenario, onScenarioChange, 
           <span className="text-xs text-ink-muted">{state === "healing" ? "Browser Use agent" : executionPathLabel(result!)}</span>
         )}
       </div>
+
+      {!mocksOn && <ResetButton disabled={running} />}
 
       {mocksOn && (
         <div className="flex items-center gap-1 rounded-lg border border-line bg-surface p-1">
