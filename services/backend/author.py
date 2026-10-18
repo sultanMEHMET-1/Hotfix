@@ -335,7 +335,7 @@ async def draft_once(settings: Settings, site: str, request: str, *, timeout: fl
                     session_id=cdp.session_id)
                 found = response.get("result", {}).get("value") or {}
                 if found.get("count") != 1 or not found.get("selector"):
-                    raise BackendError("unresolved_element", f"No single element shows the value for {output.name}")
+                    raise BackendError("unresolved_element", f"No single element shows the value for {output.name}. Ask for one specific value, such as the first result's title.")
                 reported[output.name] = found["text"]  # the value as the page shows it, even if the agent shortened it
                 outputs[output.name] = (f"read_{output.name}", found["selector"])
             fields.update(dict(outputs.values()))

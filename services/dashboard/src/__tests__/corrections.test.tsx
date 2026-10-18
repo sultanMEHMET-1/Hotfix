@@ -49,6 +49,19 @@ describe("corrections pile up", () => {
     expect(screen.getAllByText("Committed")).toHaveLength(2);
   });
 
+  it("does not show another workflow's failure banner or status", async () => {
+    render(<App />);
+    await act(async () => { await vi.advanceTimersByTimeAsync(10); });
+    await run("Rollback", HEAL_DELAY_MS);
+    expect(screen.getByRole("alert")).toHaveTextContent(/Canary output did not match/);
+    expect(screen.getByText("Reverted after a failed recovery")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Python releases" }));
+    expect(screen.queryByRole("alert")).toBeNull();
+    expect(screen.queryByText("Reverted after a failed recovery")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Permit portal" }));
+    expect(screen.getByRole("alert")).toHaveTextContent(/Canary output did not match/);
+  });
+
   it("lists only the selected workflow's corrections", async () => {
     render(<App />);
     await act(async () => { await vi.advanceTimersByTimeAsync(10); });
