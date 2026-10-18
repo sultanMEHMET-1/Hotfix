@@ -3,15 +3,21 @@ const SITE_NAMES: Record<string, string> = {
   "record-update": "Inventory desk",
   "wikipedia-article": "Wikipedia",
   "python-latest-release": "Python releases",
+  "books-travel-first-book": "Books",
+  "quotes-love-first-quote": "Quotes",
 };
 
 /** True for a workflow created from a sentence. */
 export const isCreated = (id: string): boolean => id.startsWith("custom-");
 
 /** The site a created or built-in public workflow reads, for the create panel; undefined for any other workflow. */
-export function publicSite(id: string): "wikipedia" | "python" | undefined {
+export type PublicSite = "wikipedia" | "python" | "books" | "quotes";
+
+export function publicSite(id: string): PublicSite | undefined {
   if (id === "wikipedia-article" || id.startsWith("custom-wikipedia-")) return "wikipedia";
   if (id === "python-latest-release" || id.startsWith("custom-python-")) return "python";
+  if (id === "books-travel-first-book" || id.startsWith("custom-books-")) return "books";
+  if (id === "quotes-love-first-quote" || id.startsWith("custom-quotes-")) return "quotes";
   return undefined;
 }
 
@@ -34,6 +40,8 @@ const SITE_HINTS: Record<string, string> = {
   "record-update": "Edits a price on the site",
   "wikipedia-article": "Looks up an article heading",
   "python-latest-release": "Reads the latest release",
+  "books-travel-first-book": "Reads the first Travel book",
+  "quotes-love-first-quote": "Reads the first love quote",
 };
 
 /** A few words on what running this workflow does. Unknown ids have none, so they get no tooltip. */

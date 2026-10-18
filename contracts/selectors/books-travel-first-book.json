@@ -1,0 +1,10 @@
+{
+  "workflow_id": "books-travel-first-book",
+  "target_url": "https://books.toscrape.com/",
+  "version": 1,
+  "fields": {
+    "click_travel": ".side_categories a[href='catalogue/category/books/travel_2/index.html']",
+    "first_book_title": "ol.row > li:first-child h3 a",
+    "first_book_price": "ol.row > li:first-child .price_color"
+  }
+}

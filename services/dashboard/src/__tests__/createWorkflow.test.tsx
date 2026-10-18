@@ -27,7 +27,26 @@ describe("CreateWorkflow (mock mode)", () => {
     fireEvent.change(screen.getByLabelText("What should it read?"), { target: { value: "hi" } });
     expect(button).toBeDisabled();
     expect(screen.getByText(/Reads only/)).toBeInTheDocument();
-    expect(screen.getByText(/Wikipedia and python.org only/)).toBeInTheDocument();
+    expect(screen.getByText(/Wikipedia, python.org and two practice sites only/)).toBeInTheDocument();
+  });
+
+  it("offers sentences that are known to work, and a click fills the box without running anything", () => {
+    setup();
+    const examples = screen.getAllByRole("button").filter((b) => b.closest('[aria-label="Example sentences that work"]'));
+    expect(examples.length).toBeGreaterThanOrEqual(2);
+    fireEvent.click(examples[0]);
+    expect((screen.getByLabelText("What should it read?") as HTMLTextAreaElement).value).toBe(examples[0].textContent);
+    expect(screen.queryByRole("status")).toBeNull();
+  });
+
+  it("builds a click-only preview for the practice sites", async () => {
+    render(<CreateWorkflow site="books" selectedId="books-travel-first-book" onKept={vi.fn()} onDeleted={vi.fn()} />);
+    fireEvent.change(screen.getByLabelText("What should it read?"), { target: { value: "Open the Travel category and report the first book price" } });
+    fireEvent.click(screen.getByRole("button", { name: "Create workflow" }));
+    await flush();
+    expect(screen.getByText("Clicks Travel")).toBeInTheDocument();
+    expect(screen.getByText(/"price": "£45.17"/)).toBeInTheDocument();
+    expect(screen.getByText(/Sample result for no input/)).toBeInTheDocument();
   });
 
   it("previews what was built in plain words, then keeps it", async () => {
@@ -107,6 +126,6 @@ describe("the page and the helpers", () => {
     expect(workflowTitle("wikipedia-article", "anything")).toBe("Wikipedia");
     expect(isCreated("custom-python-x-1")).toBe(true);
     expect(isCreated("record-update")).toBe(false);
-    expect([publicSite("wikipedia-article"), publicSite("custom-python-x-1"), publicSite("permit-application")]).toEqual(["wikipedia", "python", undefined]);
+    expect([publicSite("wikipedia-article"), publicSite("custom-python-x-1"), publicSite("books-travel-first-book"), publicSite("custom-quotes-x-1"), publicSite("permit-application")]).toEqual(["wikipedia", "python", "books", "quotes", undefined]);
   });
 });

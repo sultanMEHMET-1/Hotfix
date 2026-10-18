@@ -52,6 +52,21 @@ class RequestAndPlanGuards(M2Harness):
                 author.validate_plan(bad)
 
 
+class SitesAndParams(M2Harness):
+    def test_the_practice_sites_are_allowed_with_their_own_hosts_and_other_sites_are_not(self):
+        for site, host in (("books", "books.toscrape.com"), ("quotes", "quotes.toscrape.com")):
+            self.assertEqual(author.SITES[site][2], host)
+            self.assertEqual(author.validate_request(site, "Open the Travel category"), "Open the Travel category")
+        with self.assertRaises(BackendError):
+            author.validate_request("example", "Open the Travel category")
+
+    def test_a_parameter_nothing_types_is_dropped_so_click_only_workflows_have_none(self):
+        click_only = [{"field": "click_travel", "action_type": "click", "label": "Travel"}]
+        self.assertEqual(author.keep_used_params(plan(), click_only).params, [])
+        typed = [{"field": "input_search", "action_type": "input", "label": "Search", "param": "topic"}]
+        self.assertEqual([p.name for p in author.keep_used_params(plan(), typed).params], ["topic"])
+
+
 class VetoTests(M2Harness):
     def test_only_typing_and_clicking_on_safe_controls_are_allowed(self):
         self.assertIsNone(author.veto("click", element("BUTTON", "Search"), "https://en.wikipedia.org/wiki/Main_Page"))

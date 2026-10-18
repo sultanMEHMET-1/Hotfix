@@ -67,19 +67,20 @@ Without a `SENTRY_DSN` everything still runs; Sentry is just off.
 
 ## Public sites
 
-Two read-only workflows run against the real Wikipedia and python.org, with no setup beyond the venv: pick
-**Wikipedia** (type an article title, read its heading) or **Python releases** (read the newest release) in the
-dashboard. They show the fast path on sites we do not own. Their live checks are opt-in and free:
+Four read-only workflows run against real sites with no setup beyond the venv: **Wikipedia** (type an article title, read
+its heading), **Python releases** (read the newest release on python.org), and two practice sites built to be read by
+programs, whose content never changes: **Books** (Books to Scrape, first Travel book's title and price) and **Quotes**
+(Quotes to Scrape, first quote under the love tag). They show the fast path on sites we do not own. Their live checks are opt-in and free:
 `MENDER_PUBLIC_TEST=1 ... -m unittest services.backend.tests.test_public_sites`. You cannot use Chaos Mode on a site you
 do not own, and writes are never allowed on them.
 
-**Create your own.** With Wikipedia or Python releases selected, the dashboard has a box: describe what to read in a
+**Create your own.** With any of those four selected, the dashboard has a box, with one-click example sentences that were each run for real and built a working workflow: describe what to read in a
 sentence ("open the article for Marie Curie and tell me its heading"). The backend plans it, runs the agent once on the
 real site, turns the recorded typing and clicking into a workflow, proves it by replaying it with the real runner on
 two different inputs, and shows a preview to keep or discard. A kept workflow is an ordinary endpoint that runs in
 about a second. Measured: 15 s and under a cent per creation, six of six test sentences worked.
 
-Why this is safe enough, and what is not solved: it is reads only and limited to two sites; a request that asks to
+Why this is safe enough, and what is not solved: it is reads only and limited to those four sites; a request that asks to
 edit, log in, buy, post or change anything is refused before any model runs; the browser cannot leave the site; a
 pre-action check stops the agent on edit and login controls, text areas and password fields; a person confirms every
 preview. Open concerns and ideas for later: content that changes over time (news, rankings) breaks the repair check, so

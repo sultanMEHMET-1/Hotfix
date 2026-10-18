@@ -36,6 +36,14 @@ class PublicSiteTests(unittest.TestCase):
         self.assertEqual(code, 0, err[-400:])
         self.assertRegex(json.loads(out)["release"], re.compile(r"^Python \d+\.\d+\.\d+"))
 
+    def test_the_practice_sites_read_their_fixed_content(self):
+        code, out, err = run_workflow("books-travel-first-book", {})
+        self.assertEqual(code, 0, err[-400:])
+        self.assertEqual(json.loads(out), {"title": "It's Only the Himalayas", "price": "\u00a345.17"})
+        code, out, err = run_workflow("quotes-love-first-quote", {})
+        self.assertEqual(code, 0, err[-400:])
+        self.assertEqual(json.loads(out)["author"], "Andr\u00e9 Gide")
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -89,6 +89,8 @@ describe("workflowLabel", () => {
     expect(workflowLabel("record-update")).toBe("Inventory desk");
     expect(workflowLabel("wikipedia-article")).toBe("Wikipedia");
     expect(workflowLabel("python-latest-release")).toBe("Python releases");
+    expect(workflowLabel("books-travel-first-book")).toBe("Books");
+    expect(workflowLabel("quotes-love-first-quote")).toBe("Quotes");
     expect(workflowLabel("new-site-check")).toBe("New site check");
   });
 });

@@ -3,13 +3,31 @@ import type { WorkflowSummary } from "@contracts/api_types";
 import { createDraft, deleteWorkflow, keepDraft, type DraftPreview } from "../api/client";
 import { useElapsed } from "../hooks/useElapsed";
 import { formatDuration, formatUsd } from "../lib/format";
-import { isCreated } from "../lib/workflowLabel";
+import { isCreated, type PublicSite } from "../lib/workflowLabel";
 
-const SITE_NAME = { wikipedia: "Wikipedia", python: "python.org" } as const;
-const EXAMPLE = {
-  wikipedia: "Open the article for Marie Curie and tell me its heading",
-  python: "Search for decorators and give me the title of the first result",
-} as const;
+const SITE_NAME: Record<PublicSite, string> = {
+  wikipedia: "Wikipedia", python: "python.org", books: "Books to Scrape", quotes: "Quotes to Scrape",
+};
+// Sentences that were run for real and built working workflows, so every suggestion is safe to click.
+const EXAMPLES: Record<PublicSite, string[]> = {
+  wikipedia: [
+    "Look up Marie Curie on Wikipedia and tell me the article heading",
+    "Search Wikipedia for Mount Everest and read the page heading",
+    "Look up Alan Turing on Wikipedia and report the page title",
+  ],
+  python: [
+    "Find the newest Python release on the python.org downloads page",
+    "Open the python.org downloads page and report the latest release number",
+  ],
+  books: [
+    "Open the Travel category on books.toscrape.com and report the title and price of the first book",
+    "Open the Mystery category and report the price of the first book",
+  ],
+  quotes: [
+    "Click the love tag and report the first quote and its author",
+    "Click the inspirational tag and report the first quote",
+  ],
+};
 const LIMIT = 300;
 
 const PRIMARY = "min-h-[48px] rounded-panel border-[1.5px] border-ink bg-ink px-6 font-display text-base text-ground transition-opacity hover:opacity-85 disabled:cursor-not-allowed disabled:opacity-50";
@@ -22,7 +40,7 @@ function stepSentence(step: DraftPreview["steps"][number]): string {
 
 export interface CreateWorkflowProps {
   /** The public site the selected workflow reads. */
-  site: "wikipedia" | "python";
+  site: PublicSite;
   /** The selected workflow, so a created one can be deleted from here. */
   selectedId: string;
   onKept: (workflow: WorkflowSummary) => void;
@@ -88,7 +106,24 @@ export default function CreateWorkflow({ site, selectedId, onKept, onDeleted }: 
         Describe what to read on {SITE_NAME[site]}. Mender builds the workflow, tests it twice on the real site, and shows you what it made.
       </p>
 
-      <label htmlFor="create-request" className="mt-5 block text-sm text-ink-muted">What should it read?</label>
+      <div className="mt-5 flex flex-col gap-2" role="group" aria-label="Example sentences that work">
+        <span className="text-sm text-ink-muted">Try one that is known to work</span>
+        <div className="flex flex-wrap gap-2">
+          {EXAMPLES[site].map((example) => (
+            <button
+              key={example}
+              type="button"
+              disabled={busy}
+              onClick={() => setText(example)}
+              className="min-h-[44px] rounded-panel border-[1.5px] border-ink bg-surface px-3 py-2 text-left text-sm transition-colors hover:bg-surface-subtle disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              {example}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      <label htmlFor="create-request" className="mt-6 block text-sm text-ink-muted">What should it read?</label>
       <textarea
         id="create-request"
         value={text}
@@ -96,7 +131,7 @@ export default function CreateWorkflow({ site, selectedId, onKept, onDeleted }: 
         rows={2}
         disabled={busy}
         onChange={(e) => setText(e.target.value)}
-        placeholder={EXAMPLE[site]}
+        placeholder="Or describe your own"
         className="mt-2 block w-full resize-y rounded-panel border-[1.5px] border-ink bg-surface px-4 py-3 text-base text-ink placeholder:text-ink-faint disabled:opacity-60"
       />
       <div className="mt-3 flex flex-wrap items-center gap-x-5 gap-y-3">
@@ -155,7 +190,7 @@ export default function CreateWorkflow({ site, selectedId, onKept, onDeleted }: 
 
       <ul className="mt-8 flex list-none flex-col gap-1.5 p-0 text-sm text-ink-muted">
         <li>Reads only. Anything that edits, logs in, buys or posts is refused before the model runs.</li>
-        <li>Wikipedia and python.org only. Each creation costs about a cent and takes under a minute.</li>
+        <li>Wikipedia, python.org and two practice sites only. Each creation costs about a cent and takes under a minute.</li>
         <li>Content that changes (news, rankings) can fail the repair check later. A person confirms every preview.</li>
         <li>Pages behind a login or captcha are refused, never bypassed.</li>
       </ul>

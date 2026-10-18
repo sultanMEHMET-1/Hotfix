@@ -1,6 +1,7 @@
 import type { WorkflowExecutionResponse, WorkflowSummary } from "@contracts/api_types";
 import { API_BASE, RESET_PATH, RUN_WORKFLOW_PATH, USE_MOCKS, WORKFLOWS_PATH } from "../config";
 import { type MockScenario, mockRunWorkflow } from "./mocks";
+import type { PublicSite } from "../lib/workflowLabel";
 import { assertWorkflowExecutionResponse } from "./validate";
 
 export { assertWorkflowExecutionResponse };
@@ -35,6 +36,10 @@ const MOCK_WORKFLOWS: WorkflowSummary[] = [
   { id: "wikipedia-article", goal: "Search Wikipedia for an article title and report its heading.", mutates: false, default: false,
     params_schema: {}, example_params: { title: "Alan Turing" } },
   { id: "python-latest-release", goal: "Open the python.org downloads page and report the newest Python release.", mutates: false,
+    default: false, params_schema: {}, example_params: {} },
+  { id: "books-travel-first-book", goal: "Open the Travel category on Books to Scrape and report the first book's title and price.", mutates: false,
+    default: false, params_schema: {}, example_params: {} },
+  { id: "quotes-love-first-quote", goal: "Click the love tag on Quotes to Scrape and report the first quote and its author.", mutates: false,
     default: false, params_schema: {}, example_params: {} },
 ];
 
@@ -113,7 +118,7 @@ export async function resetDemo(workflow?: string): Promise<{ version: number; b
 export interface DraftPreview {
   id: string;
   workflow_id: string;
-  site: "wikipedia" | "python";
+  site: PublicSite;
   request: string;
   goal: string;
   steps: { action: "input" | "click"; label: string | null; param: string | null }[];
@@ -140,7 +145,20 @@ async function failureMessage(res: Response, fallback: string): Promise<string> 
 
 const MOCK_DRAFT_MS = 2500;
 
-function mockDraft(site: DraftPreview["site"], request: string): DraftPreview {
+function mockDraft(site: PublicSite, request: string): DraftPreview {
+  if (site === "books" || site === "quotes") {
+    const books = site === "books";
+    return {
+      id: "mock-draft", workflow_id: `custom-${site}-demo-0001`, site, request,
+      goal: books ? "Open the Travel category and report the first book's title and price." : "Click the love tag and report the first quote and its author.",
+      steps: [{ action: "click", label: books ? "Travel" : "love", param: null }],
+      params: [],
+      outputs: books ? [{ name: "title", description: "the first book's title" }, { name: "price", description: "its price" }]
+                     : [{ name: "quote", description: "the first quote" }, { name: "author", description: "who said it" }],
+      sample_output: books ? { title: "It's Only the Himalayas", price: "£45.17" } : { quote: "“It is better to be hated for what you are than to be loved for what you are not.”", author: "André Gide" },
+      cost_usd: 0.0046, duration_ms: 11000, warnings: [],
+    };
+  }
   const wiki = site === "wikipedia";
   return {
     id: "mock-draft", workflow_id: `custom-${site}-demo-0001`, site, request,
@@ -156,7 +174,7 @@ function mockDraft(site: DraftPreview["site"], request: string): DraftPreview {
   };
 }
 
-export async function createDraft(site: DraftPreview["site"], request: string, signal?: AbortSignal): Promise<DraftPreview> {
+export async function createDraft(site: PublicSite, request: string, signal?: AbortSignal): Promise<DraftPreview> {
   if (USE_MOCKS) {
     await new Promise((resolve) => setTimeout(resolve, MOCK_DRAFT_MS));
     if (signal?.aborted) throw new DOMException("Aborted", "AbortError");

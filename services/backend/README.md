@@ -35,8 +35,9 @@ Valid execution attempts return HTTP 200, with failure represented by `status="f
 
 ## Creating workflows from a sentence
 
-`author.py` turns one sentence into a read-only workflow on Wikipedia or python.org (the site is a fixed start URL, never
-a caller-supplied one). Steps: (1) the request is refused before any model call if it contains an action word (edit,
+`author.py` turns one sentence into a read-only workflow on Wikipedia, python.org, or one of two practice sites,
+books.toscrape.com and quotes.toscrape.com (the site is a fixed start URL, never a caller-supplied one). A parameter that
+no typing step uses is dropped, so click-only workflows have none. Steps: (1) the request is refused before any model call if it contains an action word (edit,
 add, change, delete, log in, password, buy, post, submit and similar); (2) one model call plans it: goal, variable
 inputs with two example values each, and what to read; (3) the agent runs on the real site, restricted to that host,
 with a **pre-action veto** in the step callback (only typing and clicking; no text areas or password fields; no edit,

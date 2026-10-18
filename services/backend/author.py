@@ -29,6 +29,9 @@ from .runner import Runner
 SITES = {
     "wikipedia": ("Wikipedia", "https://en.wikipedia.org/wiki/Main_Page", "en.wikipedia.org"),
     "python": ("python.org", "https://www.python.org/", "www.python.org"),
+    # Practice sites built to be read by programs: their content never changes, and they have no real accounts.
+    "books": ("Books to Scrape", "https://books.toscrape.com/", "books.toscrape.com"),
+    "quotes": ("Quotes to Scrape", "https://quotes.toscrape.com/", "quotes.toscrape.com"),
 }
 NAME = r"^[a-z][a-z0-9_]{0,24}$"
 MAX_STEPS = 6
@@ -117,8 +120,8 @@ async def make_plan(llm, site, request):
         "Return: read_only (true only if the request, exactly as written, only asks to read information; false if any part of it "
         "would edit, create, delete, log in, buy, post or submit anything, even if a reading step could be extracted from it), "
         "goal (one imperative sentence that keeps the request's meaning), params (the variable inputs the user may change "
-        "each time, at most 3: a snake_case name, an example value taken from the request, and a different alternate value "
-        "of the same kind; empty if nothing varies), and outputs (what to read back, at most 4: a snake_case name and a "
+        "each time, at most 3: only things typed into a field, never something clicked; a snake_case name, an example value "
+        "taken from the request, and a different alternate value of the same kind; empty if nothing is typed), and outputs (what to read back, at most 4: a snake_case name and a "
         "short description of the value shown on the page).")
     reply = await llm.ainvoke([UserMessage(content=prompt)], output_format=Plan)
     return validate_plan(reply.completion)
@@ -201,6 +204,12 @@ def compile_steps(serialized, plan, captured):
     if not steps or len(steps) > MAX_STEPS:
         raise BackendError("unsupported_action", "The agent did not complete the task by typing and clicking")
     return steps, fields
+
+
+def keep_used_params(plan, steps):
+    """A parameter nothing types is not a parameter: a click-only workflow has none, whatever the planner said."""
+    used = {step.get("param") for step in steps}
+    return plan.model_copy(update={"params": [param for param in plan.params if param.name in used]})
 
 
 def make_temp_root(settings, workflow_id, definition, selector_map):
@@ -327,6 +336,7 @@ async def draft_once(settings: Settings, site: str, request: str, *, timeout: fl
                 raise BackendError("agent_no_result", "The agent did not report every value")
             serialized = history.model_dump()
             steps, fields = compile_steps(serialized, plan, captured)
+            plan = keep_used_params(plan, steps)
             cdp = await browser.get_or_create_cdp_session()
             outputs = {}
             for output in plan.outputs:
