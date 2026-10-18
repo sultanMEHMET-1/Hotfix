@@ -32,7 +32,13 @@ export default function VisualDiffViewer({ phase, result }: VisualDiffViewerProp
         ) : records.length === 0 ? (
           <div className="mt-4 flex h-20 items-center">
             <span className="text-sm text-ink-muted">
-              {result === null ? "No runs yet" : "No selector changes — the cache is still fresh"}
+              {result === null
+                ? "No runs yet"
+                : result.error?.code === "rollback_failed"
+                  ? "Rollback failed. Restore the selectors before running again."
+                  : result.status === "failed"
+                    ? "No selector was changed. Recovery did not complete."
+                    : "No selector changes — the cache is still fresh"}
             </span>
           </div>
         ) : (

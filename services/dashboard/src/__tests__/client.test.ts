@@ -130,7 +130,10 @@ describe("runWorkflow (live mode)", () => {
     const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
     expect(url).toBe("http://api.test/api/v1/run-workflow");
     expect(init.method).toBe("POST");
-    expect(JSON.parse(init.body as string)).toEqual({ workflow_id: "permit-application" });
+    expect(JSON.parse(init.body as string)).toEqual({
+      workflow: "permit-application",
+      params: { permit_id: "PERMIT-2026-0042", applicant_name: "Davis Municipal Works" },
+    });
     expect(init.signal).toBe(c.signal);
   });
 

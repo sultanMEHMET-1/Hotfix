@@ -13,6 +13,9 @@ export interface RunWorkflowOptions {
 
 export const WORKFLOW_ID = "permit-application";
 
+/** The backend contract is { workflow, params }. These are the demo lookup's parameters. */
+export const WORKFLOW_PARAMS = { permit_id: "PERMIT-2026-0042", applicant_name: "Davis Municipal Works" };
+
 export async function runWorkflow(opts: RunWorkflowOptions = {}): Promise<WorkflowExecutionResponse> {
   const { scenario = "fast", signal } = opts;
   if (USE_MOCKS) return mockRunWorkflow(scenario, signal);
@@ -21,7 +24,7 @@ export async function runWorkflow(opts: RunWorkflowOptions = {}): Promise<Workfl
   const res = await fetch(url, {
     method: "POST",
     headers: { "Content-Type": "application/json", Accept: "application/json" },
-    body: JSON.stringify({ workflow_id: WORKFLOW_ID }),
+    body: JSON.stringify({ workflow: WORKFLOW_ID, params: WORKFLOW_PARAMS }),
     signal,
   });
 

@@ -2,7 +2,7 @@ import type { WorkflowExecutionResponse } from "@contracts/api_types";
 import type { MockScenario } from "../api/mocks";
 import { executionPathLabel } from "../lib/cost";
 import type { RunPhase } from "../hooks/useWorkflowRun";
-import StatusBadge, { badgeState } from "./StatusBadge";
+import StatusBadge, { badgeState, failedCopy } from "./StatusBadge";
 
 const SCENARIOS: { value: MockScenario; label: string }[] = [
   { value: "fast", label: "Fast" },
@@ -37,7 +37,7 @@ export default function ControlRow({ phase, result, scenario, onScenarioChange, 
           {running ? "Running" : "Trigger workflow"}
         </button>
 
-        <StatusBadge state={state} />
+        <StatusBadge state={state} label={state === "failed" ? failedCopy(result) : undefined} />
 
         {showPathLabel && (
           <span className="text-xs text-ink-muted">{state === "healing" ? "Browser Use agent" : executionPathLabel(result!)}</span>

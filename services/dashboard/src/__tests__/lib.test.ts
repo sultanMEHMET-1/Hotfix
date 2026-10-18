@@ -1,3 +1,4 @@
+import { failedCopy } from "../components/StatusBadge";
 import { describe, expect, it } from "vitest";
 import type { WorkflowExecutionResponse } from "@contracts/api_types";
 import { executionPathLabel, runCostUsd, usedAgent } from "../lib/cost";
@@ -38,7 +39,7 @@ describe("runCostUsd", () => {
 
 describe("sentryTraceUrl", () => {
   it("builds the trace URL", () => {
-    expect(sentryTraceUrl("abc123", "mender")).toBe("https://mender.sentry.io/performance/trace/abc123/");
+    expect(sentryTraceUrl("abc123", "mender")).toBe("https://mender.sentry.io/explore/traces/trace/abc123/");
   });
   it("returns null when org or traceId is empty", () => {
     expect(sentryTraceUrl("abc123", "")).toBeNull();
@@ -59,5 +60,22 @@ describe("format", () => {
     expect(formatUsd(0.0381)).toBe("$0.0381");
     expect(formatUsd(1.23456)).toBe("$1.2346");
     expect(formatUsd(null)).toBe("Unknown");
+  });
+});
+
+describe("failedCopy", () => {
+  const base = { status: "failed", execution_time_ms: 1, data: {}, healed: false, trace_id: "t" } as const;
+  const record: Record<string, unknown> = { field: "f", diff: { old_selector: "a", new_selector: "b" }, evidence: {}, version_before: 1 };
+
+  it("only claims a revert when a rolled back record exists", () => {
+    const rolled = { ...record, verification_outcome: "rolled_back" } as never;
+    expect(failedCopy({ ...base, recovery_attempted: true, heal_records: [rolled] })).toBe("Reverted after a failed recovery");
+    expect(failedCopy({ ...base, recovery_attempted: true })).toBe("Recovery failed, no selector changed");
+    expect(failedCopy({ ...base, recovery_attempted: false })).toBe("Run failed before recovery");
+  });
+
+  it("never says nothing changed when the rollback itself failed", () => {
+    const text = failedCopy({ ...base, recovery_attempted: true, error: { code: "rollback_failed", message: "x" } });
+    expect(text).toMatch(/Rollback failed/);
   });
 });
