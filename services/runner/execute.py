@@ -135,11 +135,12 @@ def execute_workflow(
         status_badge.wait_for(state="visible", timeout=PER_STEP_TIMEOUT_MS)
         status = status_badge.inner_text().strip()
         inspector = status_badge.get_attribute("data-inspector")
-        if not status or not inspector:
-            raise ValueError("status badge did not contain status and inspector data")
+        permit_id_echo = status_badge.get_attribute("data-permit")
+        if not status or not inspector or not permit_id_echo:
+            raise ValueError("status badge did not contain status, inspector and permit data")
     except Exception as error:
         raise WorkflowFailure("status_badge", status_selector, error) from error
-    return {"status": status, "inspector": inspector}
+    return {"status": status, "inspector": inspector, "permit_id": permit_id_echo}
 
 
 def _trim_dom(html: str, expected_selector: str) -> str:

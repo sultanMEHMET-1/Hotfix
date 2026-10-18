@@ -7,12 +7,13 @@ import argparse
 import json
 import sys
 from pathlib import Path
-from urllib.error import URLError
+from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
 
 BASELINE_SUBMIT_SELECTOR = "#submit-btn"
 DEFAULT_PORTAL_URL = "http://127.0.0.1:3000"
+DEFAULT_BACKEND_URL = "http://127.0.0.1:8000"
 REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_SELECTOR_PATH = REPOSITORY_ROOT / "contracts" / "selectors.json"
 
@@ -38,6 +39,19 @@ def disable_chaos_mode(portal_url: str) -> None:
         raise ResetError(f"Portal did not confirm Chaos Mode was disabled: {payload}")
 
 
+def reset_through_backend(backend_url: str) -> int | None:
+    """Reset under the backend's selector lock. Returns None only if no backend is listening."""
+
+    request = Request(f"{backend_url.rstrip('/')}/api/v1/admin/reset", data=b"{}", method="POST")
+    try:
+        with urlopen(request, timeout=10) as response:
+            return int(json.load(response)["version"])
+    except HTTPError as error:
+        raise ResetError(f"Backend refused the reset (HTTP {error.code}); retry when it is idle") from error
+    except (URLError, OSError):
+        return None
+
+
 def reset_submit_selector(selector_path: Path) -> tuple[bool, int]:
     try:
         selector_map = json.loads(selector_path.read_text(encoding="utf-8"))
@@ -61,10 +75,15 @@ def reset_submit_selector(selector_path: Path) -> tuple[bool, int]:
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--portal-url", default=DEFAULT_PORTAL_URL)
+    parser.add_argument("--backend-url", default=DEFAULT_BACKEND_URL)
     parser.add_argument("--selectors", type=Path, default=DEFAULT_SELECTOR_PATH)
     args = parser.parse_args(argv)
     try:
         disable_chaos_mode(args.portal_url)
+        backend_version = reset_through_backend(args.backend_url)
+        if backend_version is not None:
+            print(f"Chaos Mode disabled; backend restored the original selectors at version {backend_version}.")
+            return 0
         selector_changed, version = reset_submit_selector(args.selectors)
     except ResetError as error:
         print(f"demo reset error: {error}", file=sys.stderr)

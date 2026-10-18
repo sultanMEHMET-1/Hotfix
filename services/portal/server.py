@@ -153,6 +153,7 @@ def _page_html(chaos_enabled: bool) -> str:
 
       form.addEventListener('submit', (event) => {
         event.preventDefault();
+        result.querySelector('[data-testid="status-badge"]').setAttribute('data-permit', document.querySelector('#permit-id').value);
         result.hidden = false;
       });
 
