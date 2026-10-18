@@ -2,7 +2,8 @@
 
 State of `services/backend` for a teammate or agent picking it up. The run guide is
 [README.md](README.md), the rules for agents are [AGENTS.md](AGENTS.md), and the project brief is
-[CLAUDE.md](CLAUDE.md). M1 to M3 are merged into `main` (PR #1). Everything else below is on branch `codex/browser-use-recovery`, delivered as a PR for the user to merge.
+[CLAUDE.md](CLAUDE.md). M1 to M3 are merged into `main` (PR #1), and the generic runner, per-workflow
+recovery and related work are merged in PR #2. The inventory demo upgrade is on `codex/records-site-demo`.
 
 ## Status
 
@@ -19,7 +20,7 @@ State of `services/backend` for a teammate or agent picking it up. The run guide
 | Model comparison | 8 Gemini models, 90 paid trials; default is now `gemini-3.5-flash-lite` (see below) |
 | Cooldown field `cooldown_remaining_s` | In the contract, backend and dashboard (countdown) |
 
-Test status at the last run: backend 138 tests (25 opt-in skipped; the browser and real-runner suites add 15 more when enabled), dashboard 55, runner 12, `ruff` clean.
+Test status at the records-site demo run: backend 146 tests (33 opt-in skipped), browser selector/write suites 30 (2 paid tests skipped), real-runner suite 4 (1 paid test skipped), runner 12, `ruff` clean. Dashboard was unchanged; its previous result was 55 tests.
 
 The endpoint builds the shared response model, dumps it once, and validates that same JSON with both
 the Pydantic model and the JSON Schema before returning it. All four contract fields are enabled
@@ -39,7 +40,7 @@ ran the agent, only when every invocation reported them, and never to joined req
 | [config.py](config.py) | Loads definitions from `contracts/workflows/` (shared `WorkflowDefinition`), `selectors_for(workflow)`, settings, `write_allowed`, `prune_runs`, runner interpreter default |
 | [reset.py](reset.py) | Restore from a backup or from git `HEAD` under the same lock |
 | [terminal.py](terminal.py) | Rich rendering without emojis; original records and telemetry preserved |
-| [sandbox/records_site.py](sandbox/records_site.py) | Local stateful site for write workflows (Chaos Mode, decoys with `hard`, `/state`, `/reset`) |
+| [sandbox/records_site.py](sandbox/records_site.py) | Legacy inventory price desk: seeded table, live shared updates and last-save time, Chaos Mode redesign, `hard` decoys, independent `read` drift; `/reset` restores seeds |
 | [rehearse.py](rehearse.py), [rehearse_ui.py](rehearse_ui.py), [bench_models.py](bench_models.py) | Paid tools: API demo loops, real-browser dashboard loops, model comparison |
 | [proposals/](proposals) | Changes proposed to other owners (not applied) and a paste-ready message for Person 1 |
 
@@ -168,6 +169,14 @@ samples (not percentiles):
 | Sandbox site, save button | 28.9 s | 1 | n/a | $0.031 | exactly 3 writes: agent, replay, canary |
 | Dashboard, real browser, 3 loops | 29.9 to 32.4 s | 1 | n/a | about $0.031 | `rehearse_ui.py`, 3 of 3 pass |
 
+Inventory desk (12 seeded rows, navigation, filters, audit, supplier note) versus the previous simple site, paired and
+alternated (B1, C1, C2, B2, B3, C3), `gemini-3.5-flash-lite`, `sandbox-hard`: baseline 3 of 3, mean 14.1 s (13.4 to 15.3),
+$0.0058 per heal; candidate 3 of 3, mean 14.0 s (13.4 to 15.2), $0.0061 per heal (time ratio 1.00, cost ratio 1.06, more
+input tokens). Every candidate trial also passed the after-heal site checks (at most 3 writes, audit length
+`min(writes, 5)`, audit entries only for the benchmark and canary records, empty supplier note, values landed) and a
+deterministic follow-up with diagnosis disabled. Total estimated spend $0.036. Results: `state/records-demo/paired-comparison.json`
+(git-ignored). Three trials per side is a screening, not proof.
+
 `python -m services.backend.rehearse 5` passed 5 of 5 loops, twice (before and after the canary change). The
 400 ms target is not proven: fixture and local-portal numbers do not describe a real site's latency.
 
@@ -209,6 +218,27 @@ why writes need an idempotent action and a repeat-safe canary. A login or access
 after the three-invocation cap. Public sites may block headless browsers; that is untested. Read healing was proven live: with the saved value's
 test id renamed, a paid heal took 17.6 s and $0.0065 and produced `span[data-testid="result-value"]` as an
 `action_type: read` record.
+
+### Inventory demo verification
+
+The inventory page at `/records` shows seeded SKUs, upserts arbitrary strings, and polls `/state` every second
+so the presenter's open tab sees runner writes. `last_saved` is additive state with a UTC ISO timestamp;
+`writes` still counts repeated save requests. Exact output spans belong to each tab's acknowledged save,
+while table cell text uses context prefixes to keep read probing unique. Table/time/error metadata stays
+outside the compact failure form. The on-page toggle preserves independent `hard` and `read` flags.
+`POST /reset` restores the seed rows and clears modes, writes and last-save metadata. Reset backend selectors
+separately before rehearsing again. Canary writes remain visible; they can become the latest save.
+
+Verified with the real browser and runner: free write fast path 513 ms with the saved SKU visible in an
+already-open tab; desktop and mobile screenshots in ignored `state/records-demo/`. One paid
+`gemini-3.5-flash-lite` `sandbox-hard` trial passed: 16.2 s, one agent invocation, 32,099 tokens,
+SDK estimated cost $0.007234, committed `button[data-action="save"]`, correct landed write and passing
+replay/canary. Its next request was deterministic (0.94 s). These are single local measurements, not
+performance guarantees. The workflow and committed selector maps are unchanged. An isolated mutation that changed reset to empty
+records was caught by `test_reset_restores_seeds_and_clears_metadata_modes_and_receipt`. Independent review
+inspected all five screenshots and shipped the change without blocking findings. Read healing still refuses
+ambiguous text: a generic value identical to another full visible label or table cell (for example
+`SKU: SKU-1042`) can match more than one element. Ordinary SKU/price outputs remain unique.
 
 ## Sentry
 
