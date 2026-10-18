@@ -70,7 +70,7 @@ describe("App", () => {
     expect(screen.getByText("Unknown")).toBeInTheDocument();
   });
 
-  it("shows the amber healed badge and the slowdown ratio after a heal run", async () => {
+  it("shows the amber healed badge and the speed-up against an agent on every run after a heal run", async () => {
     render(<App />);
     fireEvent.click(screen.getByText("Heal"));
     fireEvent.click(screen.getByText("Trigger workflow"));
@@ -78,7 +78,8 @@ describe("App", () => {
       await vi.advanceTimersByTimeAsync(HEAL_DELAY_MS);
     });
     expect(screen.getAllByText("healed").length).toBeGreaterThan(0);
-    expect(screen.getByText("34×")).toBeInTheDocument();
+    expect(screen.getByText(/^\d+×$/)).toBeInTheDocument();
+    expect(screen.getByText("faster than an agent on every run")).toBeInTheDocument();
   });
 
   it("Live is off while the scenario buttons show, on once they are hidden, and back", () => {

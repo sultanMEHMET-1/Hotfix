@@ -121,10 +121,11 @@ describe("the redesigned result views", () => {
     evidence: { action_type: "click", history_step: 0, action_index: 0, node_name: "BUTTON", accessible_name: "Save record", attributes: {}, reasoning: "internal reasoning text" },
   });
 
-  it("headlines the ratio, and says n/a before both paths have run", () => {
+  it("headlines how much faster the fast path is than an agent on every run, and says n/a before a run", () => {
     const { rerender } = render(<BenchmarkSummary benchmarks={{ fastMs: 100, healMs: 3000, healCost: 0.01 }} />);
-    expect(screen.getByText("30×")).toBeInTheDocument();
-    expect(screen.getByText("slower with the agent")).toBeInTheDocument();
+    expect(screen.getByText("110×")).toBeInTheDocument();
+    expect(screen.getByText("faster than an agent on every run")).toBeInTheDocument();
+    expect(screen.getByText(/from our benchmark/)).toBeInTheDocument();
     expect(screen.queryByText(/Cached cost/)).toBeNull();
     expect(screen.getByText("3.0")).toBeInTheDocument();
     rerender(<BenchmarkSummary benchmarks={EMPTY_BENCHMARKS} />);
