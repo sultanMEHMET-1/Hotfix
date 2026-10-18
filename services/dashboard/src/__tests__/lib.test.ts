@@ -1,0 +1,63 @@
+import { describe, expect, it } from "vitest";
+import type { WorkflowExecutionResponse } from "@contracts/api_types";
+import { executionPathLabel, runCostUsd, usedAgent } from "../lib/cost";
+import { formatMs, formatUsd } from "../lib/format";
+import { sentryTraceUrl } from "../lib/sentry";
+
+type R = Pick<WorkflowExecutionResponse, "healed" | "recovery_attempted" | "agent_cost_usd">;
+
+describe("usedAgent / executionPathLabel", () => {
+  it("uses recovery_attempted when present", () => {
+    expect(usedAgent({ healed: false, recovery_attempted: true })).toBe(true);
+    expect(usedAgent({ healed: true, recovery_attempted: false })).toBe(false);
+  });
+  it("falls back to healed for legacy responses", () => {
+    expect(usedAgent({ healed: true })).toBe(true);
+    expect(usedAgent({ healed: false })).toBe(false);
+  });
+  it("labels the path", () => {
+    expect(executionPathLabel({ healed: false })).toBe("Deterministic Playwright");
+    expect(executionPathLabel({ healed: false, recovery_attempted: true })).toBe("Browser Use Agent Engaged");
+  });
+});
+
+describe("runCostUsd", () => {
+  it("is 0 for a deterministic run", () => {
+    expect(runCostUsd({ healed: false } satisfies R)).toBe(0);
+  });
+  it("uses agent_cost_usd for agent runs, including a measured zero", () => {
+    expect(runCostUsd({ healed: true, recovery_attempted: true, agent_cost_usd: 0.002 })).toBe(0.002);
+    expect(runCostUsd({ healed: false, recovery_attempted: true, agent_cost_usd: 0 })).toBe(0);
+  });
+  it("is unknown (null), never 0, when an agent run omits its cost", () => {
+    expect(runCostUsd({ healed: false, recovery_attempted: true })).toBeNull();
+    expect(runCostUsd({ healed: true, recovery_attempted: true, agent_cost_usd: null })).toBeNull();
+    expect(runCostUsd({ healed: true })).toBeNull();
+  });
+});
+
+describe("sentryTraceUrl", () => {
+  it("builds the trace URL", () => {
+    expect(sentryTraceUrl("abc123", "mender")).toBe("https://mender.sentry.io/performance/trace/abc123/");
+  });
+  it("returns null when org or traceId is empty", () => {
+    expect(sentryTraceUrl("abc123", "")).toBeNull();
+    expect(sentryTraceUrl("", "mender")).toBeNull();
+    expect(sentryTraceUrl("abc123")).toBeNull(); // SENTRY_ORG unset in tests
+  });
+});
+
+describe("format", () => {
+  it("formatMs", () => {
+    expect(formatMs(310)).toBe("310ms");
+    expect(formatMs(12400)).toBe("12,400ms");
+    expect(formatMs(309.6)).toBe("310ms");
+    expect(formatMs(0)).toBe("0ms");
+  });
+  it("formatUsd", () => {
+    expect(formatUsd(0)).toBe("$0.0000");
+    expect(formatUsd(0.0381)).toBe("$0.0381");
+    expect(formatUsd(1.23456)).toBe("$1.2346");
+    expect(formatUsd(null)).toBe("Unknown");
+  });
+});
