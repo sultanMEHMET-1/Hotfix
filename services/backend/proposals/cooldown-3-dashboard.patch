@@ -1,0 +1,101 @@
+diff --git a/services/dashboard/src/App.tsx b/services/dashboard/src/App.tsx
+index e1f91ae..0216db9 100644
+--- a/services/dashboard/src/App.tsx
++++ b/services/dashboard/src/App.tsx
+@@ -40,7 +40,7 @@ export default function App() {
+           mocksOn={mocksOn}
+         />
+ 
+-        {result?.status === "failed" && result.error && <ErrorBanner error={result.error} />}
++        {result?.status === "failed" && result.error && <ErrorBanner key={result.trace_id} error={result.error} cooldownRemainingS={result.cooldown_remaining_s} />}
+ 
+         <div className="mt-4">
+           <BenchmarkSummary benchmarks={benchmarks} />
+diff --git a/services/dashboard/src/__tests__/ErrorBanner.test.tsx b/services/dashboard/src/__tests__/ErrorBanner.test.tsx
+new file mode 100644
+index 0000000..8c576b2
+--- /dev/null
++++ b/services/dashboard/src/__tests__/ErrorBanner.test.tsx
+@@ -0,0 +1,24 @@
++import { act, render, screen } from "@testing-library/react";
++import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
++import ErrorBanner from "../components/ErrorBanner";
++
++const error = { code: "canary_failed", message: "Canary rejected provisional selectors" };
++
++describe("ErrorBanner cooldown", () => {
++  beforeEach(() => vi.useFakeTimers());
++  afterEach(() => vi.useRealTimers());
++
++  it("shows no countdown for an ordinary failure", () => {
++    render(<ErrorBanner error={error} />);
++    expect(screen.queryByRole("timer")).toBeNull();
++  });
++
++  it("counts down from the reported seconds and then says a retry will run", () => {
++    render(<ErrorBanner error={error} cooldownRemainingS={11.2} />);
++    expect(screen.getByRole("timer")).toHaveTextContent("retry in 12 s");
++    act(() => vi.advanceTimersByTime(3000));
++    expect(screen.getByRole("timer")).toHaveTextContent("retry in 9 s");
++    act(() => vi.advanceTimersByTime(9000));
++    expect(screen.getByRole("timer")).toHaveTextContent("Cooldown over");
++  });
++});
+diff --git a/services/dashboard/src/api/validate.ts b/services/dashboard/src/api/validate.ts
+index 74ca6aa..53a1a88 100644
+--- a/services/dashboard/src/api/validate.ts
++++ b/services/dashboard/src/api/validate.ts
+@@ -49,6 +49,7 @@ export function assertWorkflowExecutionResponse(value: unknown): asserts value i
+     problems.push("heal_records");
+   if (!isOptionalNumber(v.agent_cost_usd)) problems.push("agent_cost_usd");
+   if (!isOptionalNumber(v.agent_duration_ms)) problems.push("agent_duration_ms");
++  if (!isOptionalNumber(v.cooldown_remaining_s)) problems.push("cooldown_remaining_s");
+   if (problems.length > 0) {
+     throw new Error(`Invalid run-workflow response: missing or malformed field(s): ${problems.join(", ")}`);
+   }
+diff --git a/services/dashboard/src/components/ErrorBanner.tsx b/services/dashboard/src/components/ErrorBanner.tsx
+index c7a2d5f..91705c2 100644
+--- a/services/dashboard/src/components/ErrorBanner.tsx
++++ b/services/dashboard/src/components/ErrorBanner.tsx
+@@ -1,10 +1,40 @@
++import { useEffect, useState } from "react";
+ import type { RecoveryError } from "@contracts/api_types";
+ 
+-export default function ErrorBanner({ error }: { error: RecoveryError }) {
++export interface ErrorBannerProps {
++  error: RecoveryError;
++  /** Seconds until a retry would start a fresh recovery; set only for a cached failure. */
++  cooldownRemainingS?: number | null;
++}
++
++/** Counts down from the value the backend reported when the response arrived. */
++function useCountdown(seconds: number | null | undefined): number | null {
++  const [left, setLeft] = useState<number | null>(typeof seconds === "number" ? seconds : null);
++  useEffect(() => {
++    if (typeof seconds !== "number") return;
++    const deadline = Date.now() + seconds * 1000;
++    setLeft(seconds);
++    const timer = setInterval(() => {
++      const remaining = Math.max(0, (deadline - Date.now()) / 1000);
++      setLeft(remaining);
++      if (remaining === 0) clearInterval(timer);
++    }, 250);
++    return () => clearInterval(timer);
++  }, [seconds]);
++  return typeof seconds === "number" ? left : null;
++}
++
++export default function ErrorBanner({ error, cooldownRemainingS }: ErrorBannerProps) {
++  const left = useCountdown(cooldownRemainingS);
+   return (
+     <div className="mb-5 mt-4 flex animate-fade-up flex-col gap-0.5 rounded-xl border border-danger/20 bg-danger-bg px-4 py-3">
+       <span className="font-mono text-xs text-danger">{error.code}</span>
+       <span className="text-sm text-danger">{error.message}</span>
++      {left !== null && (
++        <span className="text-xs text-danger" role="timer">
++          {left > 0 ? `Cached failure: retry in ${Math.ceil(left)} s` : "Cooldown over: a retry will run again"}
++        </span>
++      )}
+     </div>
+   );
+ }

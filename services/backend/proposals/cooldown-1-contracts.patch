@@ -1,0 +1,179 @@
+diff --git a/contracts/README.md b/contracts/README.md
+index 89d3841..3c9e015 100644
+--- a/contracts/README.md
++++ b/contracts/README.md
+@@ -53,6 +53,7 @@ Use provides XPath or accessibility evidence.
+ - `heal_records` (optional array, defaults to empty)
+ - `agent_cost_usd` (optional nonnegative number)
+ - `agent_duration_ms` (optional nonnegative number)
++- `cooldown_remaining_s` (optional nonnegative number)
+ 
+ ## Recovery response semantics
+ 
+@@ -110,6 +111,17 @@ double-count shared work. If the SDK cannot expose a reliable value, omit it.
+ Joined requests may include the shared records but have their own `trace_id`,
+ `execution_time_ms`, and workflow output from their own replay.
+ 
++## Failure cooldown
++
++After a failed recovery the backend remembers that exact failure for 15 seconds. A request
++that fails the same way inside that window is answered from the memory instead of starting
++another agent run, so the agent is not re-run (and billed) for a failure it just could not fix.
++Such a response keeps the original `error` and `heal_records`, has its own `trace_id` and
++`execution_time_ms`, carries no `agent_cost_usd` or `agent_duration_ms`, and sets
++`cooldown_remaining_s` to the seconds left before a retry would start a fresh recovery.
++The field is omitted on every other response, including the failure that started the cooldown.
++Consumers can show "retry in N s" from it.
++
+ ## Contract checks
+ 
+ Run from the repository root:
+diff --git a/contracts/api_types.py b/contracts/api_types.py
+index 4256988..b3388e8 100644
+--- a/contracts/api_types.py
++++ b/contracts/api_types.py
+@@ -89,3 +89,4 @@ class WorkflowExecutionResponse(_StrictModel):
+     heal_records: list[HealRecord] = Field(default_factory=list)
+     agent_cost_usd: float | None = Field(default=None, ge=0, allow_inf_nan=False)
+     agent_duration_ms: float | None = Field(default=None, ge=0, allow_inf_nan=False)
++    cooldown_remaining_s: float | None = Field(default=None, ge=0, allow_inf_nan=False)
+diff --git a/contracts/api_types.ts b/contracts/api_types.ts
+index 55142d4..4118d2a 100644
+--- a/contracts/api_types.ts
++++ b/contracts/api_types.ts
+@@ -80,4 +80,6 @@ export interface WorkflowExecutionResponse {
+   agent_cost_usd?: number | null;
+   /** Total agent step time reported by Browser Use, in milliseconds. */
+   agent_duration_ms?: number | null;
++  /** Only on a failed response served from the failure cooldown: seconds until a retry starts a fresh recovery. */
++  cooldown_remaining_s?: number | null;
+ }
+diff --git a/contracts/fixtures/workflow_cooldown.json b/contracts/fixtures/workflow_cooldown.json
+new file mode 100644
+index 0000000..69e3e3b
+--- /dev/null
++++ b/contracts/fixtures/workflow_cooldown.json
+@@ -0,0 +1,60 @@
++{
++  "status": "failed",
++  "execution_time_ms": 410.0,
++  "data": {},
++  "healed": false,
++  "trace_id": "fedcba9876543210fedcba9876543210",
++  "recovery_attempted": true,
++  "error": {
++    "code": "canary_mismatch",
++    "message": "Canary output did not match; the baseline was restored as version 4."
++  },
++  "heal_records": [
++    {
++      "field": "input_permit_id",
++      "diff": {
++        "old_selector": "#permit-id",
++        "new_selector": "[data-testid='permit-id']"
++      },
++      "evidence": {
++        "action_type": "input",
++        "history_step": 0,
++        "action_index": 0,
++        "node_name": "INPUT",
++        "attributes": {
++          "data-testid": "permit-id"
++        },
++        "accessible_name": "Permit ID",
++        "reasoning": "A unique executed action matches the ordered workflow field and element label."
++      },
++      "verification_outcome": "rolled_back",
++      "version_before": 1,
++      "version_after": 2,
++      "rollback_version": 4
++    },
++    {
++      "field": "submit_button",
++      "diff": {
++        "old_selector": "#submit-btn",
++        "new_selector": "[data-action='lookup']"
++      },
++      "evidence": {
++        "action_type": "click",
++        "history_step": 1,
++        "action_index": 0,
++        "node_name": "BUTTON",
++        "attributes": {
++          "data-action": "lookup"
++        },
++        "accessible_name": "Look up permit",
++        "reasoning": "A unique executed action matches the ordered workflow field and element label."
++      },
++      "verification_outcome": "rolled_back",
++      "version_before": 2,
++      "version_after": 3,
++      "rollback_version": 4
++    }
++  ],
++  "agent_duration_ms": 3100.0,
++  "cooldown_remaining_s": 11.2
++}
+diff --git a/contracts/workflow_execution_response.schema.json b/contracts/workflow_execution_response.schema.json
+index e2549a2..728e0f7 100644
+--- a/contracts/workflow_execution_response.schema.json
++++ b/contracts/workflow_execution_response.schema.json
+@@ -276,6 +276,19 @@
+       ],
+       "default": null,
+       "title": "Agent Duration Ms"
++    },
++    "cooldown_remaining_s": {
++      "anyOf": [
++        {
++          "minimum": 0,
++          "type": "number"
++        },
++        {
++          "type": "null"
++        }
++      ],
++      "default": null,
++      "title": "Cooldown Remaining S"
+     }
+   },
+   "required": [
+diff --git a/services/backend/tests/test_contracts.py b/services/backend/tests/test_contracts.py
+index 5e6d3e6..d0250ee 100644
+--- a/services/backend/tests/test_contracts.py
++++ b/services/backend/tests/test_contracts.py
+@@ -32,7 +32,7 @@ class ContractTests(unittest.TestCase):
+ 
+     def test_all_response_fixtures_validate(self):
+         fixtures = list((CONTRACTS / "fixtures").glob("workflow_*.json"))
+-        self.assertEqual(len(fixtures), 3)
++        self.assertEqual(len(fixtures), 4)
+         for path in fixtures:
+             with self.subTest(fixture=path.name):
+                 payload = load_json(path)
+@@ -58,7 +58,7 @@ class ContractTests(unittest.TestCase):
+         self.assertFalse(response.recovery_attempted)
+         self.assertEqual(response.heal_records, [])
+         wire = response.model_dump(exclude_none=True)
+-        for field in ("agent_cost_usd", "agent_duration_ms", "error", "diff"):
++        for field in ("agent_cost_usd", "agent_duration_ms", "cooldown_remaining_s", "error", "diff"):
+             self.assertNotIn(field, wire)
+         self.validator.validate(wire)
+ 
+@@ -68,6 +68,7 @@ class ContractTests(unittest.TestCase):
+             ("negative latency", lambda p: p.update(execution_time_ms=-1)),
+             ("negative cost", lambda p: p.update(agent_cost_usd=-1)),
+             ("negative duration", lambda p: p.update(agent_duration_ms=-1)),
++            ("negative cooldown", lambda p: p.update(cooldown_remaining_s=-1)),
+             ("extra field", lambda p: p.update(unapproved=True)),
+             ("empty error", lambda p: p.update(error={"code": "", "message": ""})),
+             ("invalid outcome", lambda p: p["heal_records"][0].update(verification_outcome="success")),
+@@ -89,7 +90,7 @@ class ContractTests(unittest.TestCase):
+ 
+     def test_nonfinite_metrics_do_not_serialize(self):
+         valid = load_json(CONTRACTS / "fixtures/workflow_success.json")
+-        for field in ("execution_time_ms", "agent_cost_usd", "agent_duration_ms"):
++        for field in ("execution_time_ms", "agent_cost_usd", "agent_duration_ms", "cooldown_remaining_s"):
+             for value in (float("nan"), float("inf")):
+                 with self.subTest(field=field, value=value):
+                     with self.assertRaises(ValidationError):
