@@ -17,7 +17,7 @@ from urllib.parse import urlsplit
 
 
 PER_STEP_TIMEOUT_MS = 2_000
-DOM_SNIPPET_LIMIT = 4_000
+DOM_SNIPPET_LIMIT = 1_500
 DEFAULT_PERMIT_ID = "PERMIT-2026-0042"
 DEFAULT_APPLICANT_NAME = "Davis Municipal Works"
 DEFAULT_TARGET_URL = "http://127.0.0.1:3000/permits/apply"
@@ -133,7 +133,7 @@ def execute_workflow(
     try:
         status_badge = page.locator(status_selector)
         status_badge.wait_for(state="visible", timeout=PER_STEP_TIMEOUT_MS)
-        status = status_badge.get_attribute("data-status") or status_badge.inner_text().strip()
+        status = status_badge.inner_text().strip()
         inspector = status_badge.get_attribute("data-inspector")
         if not status or not inspector:
             raise ValueError("status badge did not contain status and inspector data")
@@ -153,14 +153,16 @@ def _trim_dom(html: str, expected_selector: str) -> str:
 
 
 def _dom_context(page: Any, expected_selector: str) -> str:
-    try:
-        html = page.locator("body").evaluate("element => element.innerHTML")
-    except Exception:
+    for container_selector in ("form", "main", "body"):
         try:
-            html = page.content()
-        except Exception as error:
-            return f"<dom-unavailable>{error}</dom-unavailable>"
-    return _trim_dom(str(html), expected_selector)
+            html = page.locator(container_selector).evaluate("element => element.outerHTML")
+            return _trim_dom(str(html), expected_selector)
+        except Exception:
+            continue
+    try:
+        return _trim_dom(str(page.content()), expected_selector)
+    except Exception as error:
+        return f"<dom-unavailable>{error}</dom-unavailable>"
 
 
 def _validate_failure_payload(payload: dict[str, Any]) -> None:
@@ -195,8 +197,9 @@ def write_failure_artifacts(
 ) -> Path:
     """Capture screenshot and DOM context, then validate and write the payload."""
 
+    artifacts_dir = artifacts_dir.resolve()
     artifacts_dir.mkdir(parents=True, exist_ok=True)
-    screenshot_path = artifacts_dir / "failure_latest.png"
+    screenshot_path = (artifacts_dir / "failure_latest.png").resolve()
     payload_path = artifacts_dir / "failure_payload.json"
     screenshot_error: Exception | None = None
     try:
