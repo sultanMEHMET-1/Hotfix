@@ -1,0 +1,58 @@
+{
+  "goal": "Search Wikipedia for an article title and report the heading of the article it opens.",
+  "steps": [
+    {
+      "field": "search_box",
+      "action_type": "input",
+      "role": "textbox",
+      "label": "Search Wikipedia",
+      "param": "title"
+    },
+    {
+      "field": "search_button",
+      "action_type": "click",
+      "role": "button",
+      "label": "Search"
+    }
+  ],
+  "outputs": {
+    "heading": {
+      "field": "article_heading",
+      "read": "text"
+    }
+  },
+  "params_schema": {
+    "type": "object",
+    "required": [
+      "title"
+    ],
+    "additionalProperties": false,
+    "properties": {
+      "title": {
+        "type": "string"
+      }
+    }
+  },
+  "output_schema": {
+    "type": "object",
+    "required": [
+      "heading"
+    ],
+    "additionalProperties": false,
+    "properties": {
+      "heading": {
+        "type": "string",
+        "description": "the article heading shown at the top of the page"
+      }
+    }
+  },
+  "canary": {
+    "params": {
+      "title": "Alan Turing"
+    },
+    "expected_output": {
+      "heading": "Alan Turing"
+    }
+  },
+  "mutates": false
+}

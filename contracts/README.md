@@ -19,7 +19,7 @@ Changing any file here requires a team agreement, except the runtime updates the
 | `api_types.py` | Pydantic v2 models matching the schemas (`WorkflowDefinition`, `WorkflowSummary`, `WorkflowExecutionResponse`, ...). |
 | `api_types.ts` | TypeScript interfaces with the same shapes for the dashboard. |
 
-Today there are two workflows: `permit-application` (the mock permit portal) and `record-update` (a local record editor that really changes a value, so it is marked `mutates`).
+Today there are four workflows: `permit-application` (the mock permit portal), `record-update` (a local record editor that really changes a value, so it is marked `mutates`), and two read-only workflows on real public sites: `wikipedia-article` (search an article title, read its heading) and `python-latest-release` (click Downloads on python.org, read the newest release). The python.org canary names the release that was current when it was written, so it goes stale when python.org ships a new one; that only affects repair verification, not the fast path.
 
 ## Workflow definitions
 

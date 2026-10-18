@@ -1,0 +1,9 @@
+{
+  "workflow_id": "python-latest-release",
+  "target_url": "https://www.python.org/",
+  "version": 1,
+  "fields": {
+    "downloads_link": "#downloads > a",
+    "latest_release": ".list-row-container > li:first-child .release-number a"
+  }
+}
