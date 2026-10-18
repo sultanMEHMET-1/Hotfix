@@ -73,6 +73,22 @@ dashboard. They show the fast path on sites we do not own. Their live checks are
 `MENDER_PUBLIC_TEST=1 ... -m unittest services.backend.tests.test_public_sites`. You cannot use Chaos Mode on a site you
 do not own, and writes are never allowed on them.
 
+**Create your own.** With Wikipedia or Python releases selected, the dashboard has a box: describe what to read in a
+sentence ("open the article for Marie Curie and tell me its heading"). The backend plans it, runs the agent once on the
+real site, turns the recorded typing and clicking into a workflow, proves it by replaying it with the real runner on
+two different inputs, and shows a preview to keep or discard. A kept workflow is an ordinary endpoint that runs in
+about a second. Measured: 15 s and under a cent per creation, six of six test sentences worked.
+
+Why this is safe enough, and what is not solved: it is reads only and limited to two sites; a request that asks to
+edit, log in, buy, post or change anything is refused before any model runs; the browser cannot leave the site; a
+pre-action check stops the agent on edit and login controls, text areas and password fields; a person confirms every
+preview. Open concerns and ideas for later: content that changes over time (news, rankings) breaks the repair check, so
+a volatility marker per output is future work; Wikipedia accepts anonymous edits, so the checks above matter and a
+page that talks the agent into acting is the residual risk; the same approach on a store could end up buying
+something, so any wider scope needs a write and purchase risk classifier and human approval; recorded paths are only
+typing and clicking (no key presses, dropdowns or new tabs); creation needs quotas and accounts before it is shared
+with anyone; created workflows are local files, not a database.
+
 ## The demo
 
 1. Pick a workflow (the picker lists what the backend can run), then **Trigger workflow** in the dashboard: the fast path, about 0.4 s, "Deterministic Playwright".

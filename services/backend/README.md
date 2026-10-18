@@ -25,10 +25,32 @@ At startup the backend loads every definition in `contracts/workflows/`, require
 | --- | --- |
 | `POST /api/v1/run-workflow` | `{"workflow": "<id>", "params": {...}}`. Returns the shared `WorkflowExecutionResponse` |
 | `GET /api/v1/workflows` | The workflows this backend can run: id, goal, `mutates`, params schema, example params (the canary's), default first |
+| `POST /api/v1/workflows/draft` | Loopback only. `{site: "wikipedia" \| "python", request}`: build a read-only workflow from a sentence and return a preview (spends model money) |
+| `POST /api/v1/workflows/draft/{id}/accept` | Loopback only. Keep a preview: writes `contracts/workflows/custom-*.json` and its map, loads it live |
+| `DELETE /api/v1/workflows/{id}` | Loopback only. Delete a created (`custom-`) workflow; 409 while it is recovering |
 | `POST /api/v1/admin/reset` | Loopback only. Body `{"workflow": "<id>"}` resets one workflow, no body or `{}` resets all. Restores the committed selectors as a new version and clears that workflow's cooldown; 409 for a workflow that is recovering |
 | `GET /api/v1/status` | Loopback only. Why the backend is blocked (if it is), active recoveries, cooldown seconds left |
 
 Valid execution attempts return HTTP 200, with failure represented by `status="failed"`, `healed=false`, `data={}`, a structured `error`, and no `diff`. `error.message` is safe to show (no keys, paths, prompts or stack traces; detail stays in logs and Sentry). `heal_records` lists every candidate that reached the page, in attempt order, and is omitted when empty. `agent_cost_usd` and `agent_duration_ms` appear only on the request that ran the agent, only when every invocation reported them, and never as 0 for unknown. A repeat of a failure inside the 15 s cooldown also carries `cooldown_remaining_s`. The response is validated against both the Pydantic model and the JSON Schema before it is returned. Invalid input returns 422, unknown workflows 404, and missing workflow, map, or runner configuration 503.
+
+## Creating workflows from a sentence
+
+`author.py` turns one sentence into a read-only workflow on Wikipedia or python.org (the site is a fixed start URL, never
+a caller-supplied one). Steps: (1) the request is refused before any model call if it contains an action word (edit,
+add, change, delete, log in, password, buy, post, submit and similar); (2) one model call plans it: goal, variable
+inputs with two example values each, and what to read; (3) the agent runs on the real site, restricted to that host,
+with a **pre-action veto** in the step callback (only typing and clicking; no text areas or password fields; no edit,
+publish or login controls or pages), and the live selector capture the healer uses; (4) the recorded actions are
+compiled into steps (a typed value must equal an example value, which becomes the step's parameter) and each output is
+located with `read_selector_expression(..., forgiving=True)` (visible elements only, a match inside a heading wins,
+else the closest text; used only here, never when repairing); (5) the workflow is replayed with the real runner: the
+example values must give what the agent reported, the same request twice must agree, and the alternate values must
+succeed and give a different answer; a selector containing an example value is rejected. Nothing is written until the
+user keeps the preview. Kept workflows are `contracts/workflows/custom-<site>-<words>-<4hex>.json` plus a map (map
+written first), ignored by git, with a first-version snapshot in `state/custom-baselines/` that Reset restores.
+Quotas: one creation at a time, 5 per hour, 20 kept. Failures are coded (`not_read_only`, `unsupported_action`,
+`ambiguous_param`, `unresolved_element`, `replay_mismatch`, `replay_unstable`, `output_ignores_param`, `unsafe_action`,
+`author_timeout`) and nothing is registered.
 
 ## Settings
 

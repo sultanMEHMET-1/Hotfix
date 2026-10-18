@@ -5,10 +5,26 @@ const SITE_NAMES: Record<string, string> = {
   "python-latest-release": "Python releases",
 };
 
-/** What a person calls the site behind a workflow. Unknown ids fall back to the id with spaces. */
-export function workflowLabel(id: string): string {
+/** True for a workflow created from a sentence. */
+export const isCreated = (id: string): boolean => id.startsWith("custom-");
+
+/** The site a created or built-in public workflow reads, for the create panel; undefined for any other workflow. */
+export function publicSite(id: string): "wikipedia" | "python" | undefined {
+  if (id === "wikipedia-article" || id.startsWith("custom-wikipedia-")) return "wikipedia";
+  if (id === "python-latest-release" || id.startsWith("custom-python-")) return "python";
+  return undefined;
+}
+
+/** The page title: a created workflow shows its whole goal (the picker button shortens it). */
+export function workflowTitle(id: string, goal?: string): string {
+  return isCreated(id) && goal ? goal.replace(/\.$/, "") : workflowLabel(id, goal);
+}
+
+/** What a person calls the site behind a workflow. A created workflow is named by its goal; unknown ids fall back to the id with spaces. */
+export function workflowLabel(id: string, goal?: string): string {
   const known = SITE_NAMES[id];
   if (known) return known;
+  if (isCreated(id) && goal) return goal.length > 28 ? `${goal.slice(0, 27).trimEnd()}…` : goal.replace(/\.$/, "");
   const spaced = id.replace(/-/g, " ");
   return spaced.charAt(0).toUpperCase() + spaced.slice(1);
 }
@@ -22,5 +38,5 @@ const SITE_HINTS: Record<string, string> = {
 
 /** A few words on what running this workflow does. Unknown ids have none, so they get no tooltip. */
 export function workflowHint(id: string): string | undefined {
-  return SITE_HINTS[id];
+  return SITE_HINTS[id] ?? (isCreated(id) ? "Created from a sentence" : undefined);
 }

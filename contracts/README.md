@@ -10,6 +10,7 @@ Changing any file here requires a team agreement, except the runtime updates the
 | --- | --- |
 | `workflows/<workflow_id>.json` | A workflow any runner can execute: ordered steps, how each output is read, schemas, a canary. The only place definitions live. |
 | `workflow.schema.json` | JSON Schema for a workflow definition (generated from `WorkflowDefinition`). |
+| `workflows/custom-*.json`, `selectors/custom-*.json` | Workflows created from a sentence in the dashboard. Same format, written by the backend, ignored by git (see the backend README). |
 | `selectors/<workflow_id>.json` | The selector map for one workflow: its page URL and a CSS selector per field. Rewritten by the healer. |
 | `selectors.schema.json` | Schema for a selector map. |
 | `failure_payload.schema.json` | Schema for a timeout or selector-miss artifact. |

@@ -355,6 +355,27 @@ test that fails without the fix, 1 was fixed in part, and 1 is documented:
 - Since fixed: the runner now navigates to the selector map's `target_url`, so the write guard checks the page that
   is actually visited.
 
+## Creating workflows from a sentence (Wikipedia and python.org)
+
+Run as a spike first (the plan's go or no-go gate). First attempt: 0 of 6, and the failures were real defects found and
+fixed: hidden duplicate elements made a value look ambiguous (the read probe now ignores invisible elements, which also
+helps repairs); several visible elements showed the same text (a forgiving mode, used only for creation, prefers the one
+inside a heading, then the closest text); the agent shortened a value ("3.15.0" for "Python 3.15.0", so the page's own
+text is kept as the expected output); workflow ids must be hyphenated words (underscores made the runner exit with no
+artifact); and the planner turned "edit this article" and "log in and change my password" into read-only plans, which
+ran the agent on the site. That last one is why the request itself is checked for action words before any model call.
+After the fixes: 6 of 6 sentences worked (three Wikipedia headings, two python.org searches, and the newest release),
+7 to 17 s each, $0.0044 to $0.011 of agent cost each; the two unsafe sentences were refused in 0 s. Live through the
+dashboard: both built-in public workflows ran in about 50 ms of UI time on the fast path, a created workflow was built
+in 15 s for $0.0088, kept, ran in 1.3 s, and was deleted with its files. Total spend about 12 cents.
+
+Known limits: only input and click steps (an agent that presses Enter, picks a dropdown option or navigates by URL is
+rejected as `unsupported_action`; the prompt tells it not to, and 6 of 6 complied); some derived selectors are
+structural (`li:nth-of-type(1) > h3 > a`) and may break on a redesign, which repair then handles; a search result
+ranking can change (python.org's first result for `asyncio` was a job posting), so the repair canary for such a workflow
+goes stale; the veto and the action-word list are deliberately blunt (a request that merely contains "add" is refused);
+drafts are in memory and expire after 15 minutes; custom workflows are local files.
+
 ## Open items and limits
 
 - **Warm driver.** Playwright import and driver start cost about 197 ms of the 367 ms fast path. A persistent

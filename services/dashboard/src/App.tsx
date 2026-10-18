@@ -5,7 +5,7 @@ import { DEFAULT_WORKFLOW, listWorkflows } from "./api/client";
 import type { MockScenario } from "./api/mocks";
 import { useWorkflowRun } from "./hooks/useWorkflowRun";
 import { useTheme } from "./hooks/useTheme";
-import { workflowLabel } from "./lib/workflowLabel";
+import { isCreated, publicSite, workflowTitle } from "./lib/workflowLabel";
 import { USE_MOCKS, setUseMocks } from "./config";
 import Header from "./components/Header";
 import ControlRow from "./components/ControlRow";
@@ -15,6 +15,7 @@ import VisualDiffViewer from "./components/VisualDiffViewer";
 import RunLog from "./components/RunLog";
 import BlurFade from "./components/BlurFade";
 import ScrollReveal from "./components/ScrollReveal";
+import CreateWorkflow from "./components/CreateWorkflow";
 
 export default function App() {
   const [mocksOn, setMocksOn] = useState(USE_MOCKS);
@@ -58,9 +59,9 @@ export default function App() {
           <main id="main">
             <BlurFade className="mt-10">
               <h1 className="break-words text-[clamp(2rem,5vw,3.25rem)] leading-[1.05] tracking-tight">
-                <span className="text-ink-muted">Selected:</span> <span>{workflowLabel(workflow.id)}</span>
+                <span className="text-ink-muted">Selected:</span> <span>{workflowTitle(workflow.id, workflow.goal)}</span>
               </h1>
-              <p className="mt-2 max-w-[62ch] text-base text-ink-muted">{workflow.goal}</p>
+              {!isCreated(workflow.id) && <p className="mt-2 max-w-[62ch] text-base text-ink-muted">{workflow.goal}</p>}
             </BlurFade>
 
             <BlurFade className="mt-8" delay={0.08}>
@@ -77,6 +78,17 @@ export default function App() {
                 onWorkflowChange={setWorkflowId}
               />
             </BlurFade>
+
+            {publicSite(workflow.id) && (
+              <ScrollReveal>
+                <CreateWorkflow
+                  site={publicSite(workflow.id)!}
+                  selectedId={workflow.id}
+                  onKept={(created) => { setWorkflows((list) => [...list, created]); setWorkflowId(created.id); }}
+                  onDeleted={(id) => { setWorkflows((list) => list.filter((w) => w.id !== id)); setWorkflowId(DEFAULT_WORKFLOW.id); }}
+                />
+              </ScrollReveal>
+            )}
 
             {phase === "error" && error && <ErrorBanner error={{ code: "request_failed", message: error.message }} />}
             {phase === "done" && result?.status === "failed" && result.error && (

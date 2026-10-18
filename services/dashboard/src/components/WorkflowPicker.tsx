@@ -27,7 +27,7 @@ export default function WorkflowPicker({ workflows, selected, onSelect, disabled
               on ? "bg-ink font-semibold text-ground" : "bg-surface text-ink-muted hover:bg-surface-subtle hover:text-ink"
             }`}
           >
-            {workflowLabel(w.id)}
+            {workflowLabel(w.id, w.goal)}
             {w.mutates && <span className={`font-sans text-sm ${on ? "text-ground" : "text-warning"}`}>writes</span>}
           </button>
         );
