@@ -16,38 +16,54 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlsplit
 
 LOCK = threading.Lock()
-SEEDS = {"SKU-1042": "19.95", "SKU-1043": "8.50", "SKU-1044": "42.00"}
+SEEDS = {"SKU-1042": "19.95", "SKU-1043": "8.50", "SKU-1044": "42.00", "SKU-1045": "6.75",
+         "SKU-1046": "11.25", "SKU-1047": "7.95", "SKU-1048": "2.40", "SKU-1049": "3.85",
+         "SKU-1050": "12.50", "SKU-1051": "9.90", "SKU-1052": "28.00", "SKU-1053": "5.60"}
+SEED_DETAILS = {
+    "SKU-1042": {"name": "M8 hex bolt box", "category": "Hardware", "quantity": 24},
+    "SKU-1043": {"name": "PTFE thread tape", "category": "Plumbing", "quantity": 4},
+    "SKU-1044": {"name": "Nitrile gloves box", "category": "Safety", "quantity": 0},
+    "SKU-1045": {"name": "Cable ties pack", "category": "Electrical", "quantity": 60},
+    "SKU-1046": {"name": "Utility knife", "category": "Tools", "quantity": 8},
+    "SKU-1047": {"name": "Safety glasses", "category": "Safety", "quantity": 3},
+    "SKU-1048": {"name": "PVC elbow 25 mm", "category": "Plumbing", "quantity": 35},
+    "SKU-1049": {"name": "Electrical tape", "category": "Electrical", "quantity": 12},
+    "SKU-1050": {"name": "Shop towels pack", "category": "Supplies", "quantity": 5},
+    "SKU-1051": {"name": "Work gloves pair", "category": "Safety", "quantity": 1},
+    "SKU-1052": {"name": "Drill bit set", "category": "Tools", "quantity": 9},
+    "SKU-1053": {"name": "Steel washers box", "category": "Hardware", "quantity": 4},
+}
 STATE = {"records": dict(SEEDS), "writes": 0, "last_saved": None, "chaos": False, "hard": False, "read": False}
 
 PAGE = """<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Inventory Price Desk</title>
 <style>
-:root { color-scheme: light; font-family: Arial, sans-serif; color: #292929; background: #e7e3d8; }
+:root { color-scheme: light; font-family: Arial, sans-serif; color: #292929; background: #d4d0c8; font-size: 14px; }
 body { margin: 0; } * { box-sizing: border-box; }
-header { padding: 18px 26px; background: #243b53; color: white; border-bottom: 4px solid #152536; }
-header strong { font-size: 20px; } header p { margin: 6px 0 0; color: #e0e7ee; font-size: 13px; }
-nav { display: flex; align-items: center; gap: 22px; padding: 10px 26px; border-bottom: 1px solid #aaa; background: #fffef8; }
+header { padding: 12px 18px; background: #243b53; color: white; border-bottom: 4px solid #152536; }
+header strong { font-size: 18px; } header p { margin: 6px 0 0; color: #e0e7ee; font-size: 13px; }
+nav { display: flex; align-items: center; gap: 18px; padding: 7px 18px; border-bottom: 2px groove #eee; background: #d4d0c8; }
 nav a { color: #243b53; text-underline-offset: 3px; } nav button { margin-left: auto; }
-button { padding: 9px 14px; border: 1px solid #666; border-radius: 2px; cursor: pointer; font: inherit; }
+button { padding: 5px 12px; border: 2px outset #eee; border-radius: 0; background: #d4d0c8; cursor: pointer; font: inherit; }
 button:hover { filter: brightness(.92); } button:disabled { opacity: .65; cursor: wait; }
 :focus-visible { outline: 3px solid #b05c00; outline-offset: 3px; } ::selection { background: #f2d28c; color: #292929; }
 #chaos-toggle { color: white; background: #9e2929; border-color: #742020; font-weight: bold; }
-main { max-width: 1060px; margin: 28px auto; padding: 0 22px; }
-h1 { margin: 0 0 8px; font: bold 30px Georgia, serif; } h2 { margin: 0 0 10px; font: bold 22px Georgia, serif; }
-.intro { margin: 0 0 22px; line-height: 1.5; } .layout { display: grid; grid-template-columns: 1fr 1.15fr; gap: 22px; align-items: start; }
-.paper { background: #fffef8; border: 1px solid #999; padding: 22px; min-width: 0; }
+main { max-width: 1160px; margin: 18px auto; padding: 0 22px; }
+h1 { margin: 0 0 8px; font: bold 24px Arial, sans-serif; } h2 { margin: 0 0 10px; font: bold 16px Arial, sans-serif; padding: 7px; background: #243b53; color: white; }
+.intro { margin: 0 0 22px; line-height: 1.5; } .layout { display: grid; grid-template-columns: 340px 1fr; gap: 14px; align-items: start; }
+.paper { background: #fffef8; border: 2px groove #eee; padding: 12px; min-width: 0; }
 .note, .fine-print { color: #555; font-size: 13px; line-height: 1.5; } .note { margin: 0 0 14px; }
 label { display: block; margin: 14px 0 6px; font-weight: bold; }
-input { display: block; width: 100%; padding: 9px; border: 1px solid #777; border-radius: 2px; font: inherit; caret-color: #243b53; }
+input { display: block; width: 100%; padding: 6px; border: 2px inset #eee; border-radius: 0; font: inherit; caret-color: #243b53; }
 #search-slot input { margin-bottom: 12px; } #actions { margin-top: 18px; }
 #save-btn, [data-action="save"] { background: #2e7138; border-color: #24592c; color: white; font-weight: bold; }
 #decoys { display: flex; flex-wrap: wrap; gap: 8px; } #decoys:empty { display: none; }
 #result { margin-top: 18px; padding: 12px; background: #e8f5e9; border: 1px solid #356859; overflow-wrap: anywhere; }
-[hidden] { display: none !important; } .table-scroll { overflow-x: auto; }
+[hidden] { display: none !important; } .table-scroll { overflow: auto; max-height: 360px; }
 table { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
-th, td { padding: 12px 10px; border: 1px solid #b6b5af; text-align: left; overflow-wrap: anywhere; }
-th { background: #deded5; font-size: 13px; } td { font-size: 15px; white-space: pre-wrap; }
+th, td { padding: 6px 8px; border: 1px solid #b6b5af; text-align: left; overflow-wrap: anywhere; }
+th { position: sticky; top: 0; background: #deded5; font-size: 13px; } td { font-size: 14px; white-space: pre-wrap; }
 tbody tr:nth-child(even) { background: #f2f0e8; } tr.latest { background: #e8f5e9 !important; }
 #last-saved { margin: 14px 0 0; font-size: 13px; } #sync-status, #action-error { min-height: 20px; font-size: 13px; }
 #action-error { color: #8b1e1e; } footer { margin: 22px 0; padding-top: 12px; border-top: 1px solid #aaa; }
@@ -75,7 +91,7 @@ main { padding: 0 14px; margin-top: 22px; } .layout, .chaos #record-form { grid-
 </form><p id="action-error" role="alert"></p></section>
 <section id="inventory" class="paper" aria-labelledby="inventory-title"><h2 id="inventory-title">Current inventory</h2>
 <p class="note">Shared records. Changes from other sessions appear automatically.</p><div id="search-slot">__SEARCH__</div>
-<div class="table-scroll"><table><thead><tr><th scope="col">Record / SKU</th><th scope="col">Current value</th></tr></thead><tbody id="records-body">__ROWS__</tbody></table></div>
+<div class="table-scroll"><table><thead><tr><th scope="col">Record / SKU</th><th scope="col">Item</th><th scope="col">Current value</th></tr></thead><tbody id="records-body">__ROWS__</tbody></table></div>
 <p id="last-saved">Last saved: __LAST_SAVED__</p></section></div>
 <p id="sync-status" role="status">Connecting to inventory...</p>
 <footer class="fine-print">Local demonstration system. Records are held in memory; reset restores the sample inventory.</footer></main>
@@ -85,6 +101,7 @@ main { padding: 0 14px; margin-top: 22px; } .layout, .chaos #record-form { grid-
   const form = document.querySelector('#record-form'), toggle = document.querySelector('#chaos-toggle');
   const button = document.querySelector('#save-btn'), result = document.querySelector('#result');
   const error = document.querySelector('#action-error'), sync = document.querySelector('#sync-status');
+  const names = new Map([...document.querySelectorAll('#records-body tr')].map(row => [row.cells[0].textContent, row.cells[1].textContent]));
   let modes = __MODES__, generation = 0, refreshId = 0, pending = false;
   function applyModes(state) {
     modes = {chaos: state.chaos, hard: state.hard, read: state.read};
@@ -123,7 +140,7 @@ main { padding: 0 14px; margin-top: 22px; } .layout, .chaos #record-form { grid-
       const rows = Object.entries(state.records).map(([record, value]) => {
         const row = document.createElement('tr');
         row.classList.toggle('latest', state.last_saved !== null && state.last_saved.record_id === record);
-        for (const text of [`SKU: ${record}`, `Value: ${value}`]) {
+        for (const text of [`SKU: ${record}`, names.get(`SKU: ${record}`) || 'Item: Custom record', `Value: ${value}`]) {
           const cell = document.createElement('td'); cell.textContent = text; row.append(cell);
         }
         return row;
@@ -169,7 +186,7 @@ DECOYS = '<button type="button" data-action="draft">Save draft</button><button t
 
 
 def render():
-    rows = "".join(f"<tr><td>SKU: {escape(record)}</td><td>Value: {escape(value)}</td></tr>"
+    rows = "".join(f"<tr><td>SKU: {escape(record)}</td><td>Item: {escape(SEED_DETAILS.get(record, {}).get('name', 'Custom record'))}</td><td>Value: {escape(value)}</td></tr>"
                    for record, value in STATE["records"].items())
     replacements = {"__MODES__": json.dumps({key: STATE[key] for key in ("chaos", "hard", "read")}),
                     "__VALUE_ID__": "result-value" if STATE["read"] else "saved-value",
