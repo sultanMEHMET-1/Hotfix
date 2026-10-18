@@ -114,7 +114,7 @@ def selector_expression(element):
         "CANDIDATES", json.dumps(list(css_candidates(element))))
 
 
-def read_selector_expression(texts):
+def read_selector_expression(texts, budget_ms=5000):
     """Find the one deepest element whose visible text equals every reported text, then derive its CSS.
 
     Form controls are skipped (they echo params), wrappers that only contain the match are dropped, and
@@ -124,8 +124,13 @@ def read_selector_expression(texts):
       const wanted = TEXTS;
       const norm = text => (text || '').replace(/\\s+/g, ' ').trim();
       const skip = new Set(['INPUT', 'TEXTAREA', 'SELECT', 'OPTION', 'SCRIPT', 'STYLE', 'NOSCRIPT']);
-      const hits = [...document.body.querySelectorAll('*')].filter(
-        node => !skip.has(node.tagName) && wanted.every(text => norm(node.innerText) === text));
+      const started = performance.now();
+      const hits = [];
+      for (const node of document.body.querySelectorAll('*')) {
+        // innerText forces layout, so a huge page must not stall the recovery until its deadline.
+        if (performance.now() - started > BUDGET) return {count: -1};
+        if (!skip.has(node.tagName) && wanted.every(text => norm(node.innerText) === text)) hits.push(node);
+      }
       const deepest = hits.filter(node => !hits.some(other => other !== node && node.contains(other)));
       if (deepest.length !== 1) return {count: deepest.length};
       const target = deepest[0];
@@ -142,7 +147,7 @@ def read_selector_expression(texts):
       const attributes = Object.fromEntries([...target.attributes].map(attribute => [attribute.name, attribute.value]));
       return {count: 1, selector, tag: target.tagName, attributes};
     })()"""
-    return script.replace("TEXTS", json.dumps(list(texts), ensure_ascii=False))
+    return script.replace("TEXTS", json.dumps(list(texts), ensure_ascii=False)).replace("BUDGET", str(int(budget_ms)))
 
 
 def extract_evidence(history: dict, workflow, failure):
@@ -262,6 +267,8 @@ async def read_candidate(browser, history, serialized, failure, text_keys, metri
         params={"expression": read_selector_expression(list(reported.values())), "returnByValue": True},
         session_id=cdp.session_id)
     found = response.get("result", {}).get("value") or {}
+    if found.get("count") == -1:
+        raise BackendError("ambiguous_element", "The page is too large to search for the reported values")
     if found.get("count") != 1:
         raise BackendError("ambiguous_element", "The reported values are not shown by exactly one element")
     selector = found.get("selector")

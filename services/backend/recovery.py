@@ -30,6 +30,11 @@ UNCACHEABLE = {"model_unconfigured", "backend_unavailable", "recovery_cancelled"
                "cleanup_timeout", "browser_cleanup_failed", "runner_cleanup_failed", "model_cleanup_failed"}
 
 
+def reads_match(data, reported):
+    """The replay must read what the agent saw. Reported values have collapsed whitespace; so do the read values."""
+    return all(" ".join(str(data.get(key, "")).split()) == value for key, value in reported.items())
+
+
 @dataclass
 class RecoveryResult:
     data: dict | None = None
@@ -231,7 +236,7 @@ class Recovery:
                                         result = replay
                                         continue
                                     log.info("Deterministic replay and output schema passed", extra={"phase": "VERIFY"})
-                                    if candidate.reported and any(replay.data.get(key) != value for key, value in candidate.reported.items()):
+                                    if candidate.reported and not reads_match(replay.data, candidate.reported):
                                         raise BackendError("read_mismatch", "The replay read a different value than the agent reported")
                                     if workflow.canary:
                                         canary = await runner.execute(workflow_id, workflow.canary.params, output_validator, deadline=deadline)

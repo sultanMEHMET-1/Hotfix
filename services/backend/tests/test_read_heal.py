@@ -11,7 +11,7 @@ from unittest.mock import patch
 from contracts.api_types import WorkflowDefinition
 from services.backend.config import BackendError, Settings
 from services.backend.healer import diagnose, read_candidate
-from services.backend.recovery import validate_failure
+from services.backend.recovery import reads_match, validate_failure
 from services.backend.tests.test_m1 import failure
 
 ROOT = Path(__file__).resolve().parents[3]
@@ -79,6 +79,11 @@ class ReadPositionTests(unittest.TestCase):
     def result(self, step, selector):
         update = {"workflow_id": "permit-application", "failed_step": step, "expected_selector": selector}
         return SimpleNamespace(failure=failure().model_copy(update=update), error=None)
+
+    def test_replay_values_match_the_reported_ones_ignoring_whitespace_only(self):
+        self.assertTrue(reads_match({"status": "Approved\nby  Davis"}, {"status": "Approved by Davis"}))
+        self.assertFalse(reads_match({"status": "Approved by Smith"}, {"status": "Approved by Davis"}))
+        self.assertFalse(reads_match({}, {"status": "Approved"}))
 
     def test_reads_come_after_every_step(self):
         steps = [validate_failure("permit-application", PERMIT, self.selectors(), self.result(name, selector))
