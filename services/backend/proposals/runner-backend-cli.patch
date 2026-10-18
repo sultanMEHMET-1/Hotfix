@@ -1,0 +1,70 @@
+diff --git a/services/runner/execute.py b/services/runner/execute.py
+index 09a912b..0d074f3 100644
+--- a/services/runner/execute.py
++++ b/services/runner/execute.py
+@@ -194,12 +194,13 @@ def write_failure_artifacts(
+     selector_map: dict[str, Any],
+     failure: WorkflowFailure,
+     artifacts_dir: Path,
++    screenshot_name: str = "failure_latest.png",
+ ) -> Path:
+     """Capture screenshot and DOM context, then validate and write the payload."""
+ 
+     artifacts_dir = artifacts_dir.resolve()
+     artifacts_dir.mkdir(parents=True, exist_ok=True)
+-    screenshot_path = (artifacts_dir / "failure_latest.png").resolve()
++    screenshot_path = (artifacts_dir / screenshot_name).resolve()
+     payload_path = artifacts_dir / "failure_payload.json"
+     screenshot_error: Exception | None = None
+     try:
+@@ -242,6 +243,13 @@ def _argument_parser() -> argparse.ArgumentParser:
+     parser.add_argument("--applicant-name", default=DEFAULT_APPLICANT_NAME)
+     parser.add_argument("--artifacts-dir", type=Path, default=DEFAULT_ARTIFACTS_DIR)
+     parser.add_argument("--headed", action="store_true", help="Show the browser while executing")
++    # Backend runner contract: --workflow <id> --params '<json>' --run-id <uuid>. Artifacts go to
++    # runs/<run_id>/ (failure_payload.json, failure.png) relative to the working directory.
++    parser.add_argument("--workflow")
++    parser.add_argument("--params", help="JSON object with permit_id and applicant_name")
++    parser.add_argument("--run-id")
++    parser.add_argument("--sentry-trace")
++    parser.add_argument("--baggage")
+     return parser
+ 
+ 
+@@ -262,6 +270,20 @@ def main(argv: list[str] | None = None) -> int:
+         )
+         return 2
+ 
++    permit_id, applicant_name = args.permit_id, args.applicant_name
++    artifacts_dir, screenshot_name = args.artifacts_dir, "failure_latest.png"
++    if args.workflow and args.workflow != selector_map["workflow_id"]:
++        print(f"runner configuration error: unknown workflow {args.workflow!r}", file=sys.stderr)
++        return 2
++    if args.params:
++        try:
++            params = json.loads(args.params)
++            permit_id, applicant_name = params["permit_id"], params["applicant_name"]
++        except (ValueError, KeyError, TypeError) as error:
++            print(f"runner configuration error: invalid --params: {error}", file=sys.stderr)
++            return 2
++    if args.run_id:
++        artifacts_dir, screenshot_name = Path("runs") / args.run_id, "failure.png"
+     target_url = _default_target_url(args.target_url)
+     try:
+         with sync_playwright() as playwright:
+@@ -273,12 +295,12 @@ def main(argv: list[str] | None = None) -> int:
+                     result = execute_workflow(
+                         page,
+                         selector_map,
+-                        args.permit_id,
+-                        args.applicant_name,
++                        permit_id,
++                        applicant_name,
+                         target_url,
+                     )
+                 except WorkflowFailure as failure:
+-                    payload_path = write_failure_artifacts(page, selector_map, failure, args.artifacts_dir)
++                    payload_path = write_failure_artifacts(page, selector_map, failure, artifacts_dir, screenshot_name)
+                     print(f"runner failed: {failure}; wrote {payload_path}", file=sys.stderr)
+                     return 1
+                 elapsed_ms = (perf_counter() - workflow_started) * 1000

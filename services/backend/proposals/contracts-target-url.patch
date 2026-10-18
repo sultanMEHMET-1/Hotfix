@@ -1,0 +1,19 @@
+diff --git a/contracts/selectors.json b/contracts/selectors.json
+index 3ff33f6..55bcc1b 100644
+--- a/contracts/selectors.json
++++ b/contracts/selectors.json
+@@ -1,11 +1,11 @@
+ {
+   "workflow_id": "permit-application",
+-  "target_url": "https://portal.example.gov/permits/apply",
+-  "version": 1,
++  "target_url": "http://127.0.0.1:3000/permits/apply",
++  "version": 11,
+   "fields": {
+     "input_permit_id": "#permit-id",
+     "input_applicant_name": "#applicant-name",
+-    "submit_button": "#submit-btn",
++    "submit_button": "button[data-action=\"submit\"]",
+     "status_badge": "[data-testid='status-badge']"
+   }
+ }
