@@ -43,9 +43,9 @@ export default function ControlRow({
         <WorkflowPicker workflows={workflows} selected={workflowId} onSelect={onWorkflowChange} disabled={running} />
 
         <div className="flex flex-wrap items-center gap-3">
-          <button type="button" onClick={onToggleMocks} aria-pressed={mocksOn} title="Switch between mocked demo responses and the real backend"
+          <button type="button" onClick={onToggleMocks} aria-pressed={mocksOn} title="Filled: canned demo responses, no backend needed. Outlined: the real backend."
             className={`${SECONDARY} ${mocksOn ? "!bg-ink !text-ground" : ""}`}>
-            Mocks {mocksOn ? "on" : "off"}
+            Demo
           </button>
           {mocksOn ? (
             <div className="flex" role="group" aria-label="Mock scenario">

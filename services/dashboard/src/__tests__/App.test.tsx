@@ -80,16 +80,18 @@ describe("App", () => {
     expect(screen.getByText("34×")).toBeInTheDocument();
   });
 
-  it("toggles mocks off and hides the scenario picker, then restores it", () => {
+  it("turns the demo off and hides the scenario picker, then restores it", () => {
     render(<App />);
+    const toggle = screen.getByRole("button", { name: "Demo" });
+    expect(toggle).toHaveAttribute("aria-pressed", "true");
     expect(screen.getByText("Fast")).toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole("button", { name: /Mocks on/ }));
-    expect(screen.getByText("Mocks off")).toBeInTheDocument();
+    fireEvent.click(toggle);
+    expect(toggle).toHaveAttribute("aria-pressed", "false");
     expect(screen.queryByText("Fast")).not.toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole("button", { name: /Mocks off/ }));
-    expect(screen.getByText("Mocks on")).toBeInTheDocument();
+    fireEvent.click(toggle);
+    expect(toggle).toHaveAttribute("aria-pressed", "true");
     expect(screen.getByText("Fast")).toBeInTheDocument();
   });
 });
