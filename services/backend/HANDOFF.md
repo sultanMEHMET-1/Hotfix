@@ -222,7 +222,15 @@ the runner's `dom_snippet` embeds it, so identical failures never matched the co
 `cooldown_key` now ignores `class` attributes (the backend never selects on classes).
 The cooldown test fails without this change.
 
-Gaps that need Person 1 or the contracts owner (not worked around in production code):
+Full-stack proof (scratch copy with both proposals applied, no shim): real portal,
+real runner, backend served by uvicorn, real Gemini. `python -m services.backend.rehearse 5`
+passed **5 of 5** loops (reset, fast, Chaos Mode, heal, fast). Fast path 371-376 ms
+over HTTP. Heals took 21.5-32.8 s, agent time 17.5-27.5 s, SDK cost $0.029-$0.031 each,
+every record committed, versions monotonic (reset to 2, 4, 6, 8, 10; heals to 3, 5, 7, 9, 11).
+Requires the two patches in [proposals/](proposals/README.md), which this branch does not apply.
+
+Gaps that need Person 1 or the contracts owner (not worked around in production code).
+Items 1 to 3 have verified patches in `proposals/`:
 
 1. **Runner CLI.** `execute.py` takes `--permit-id --applicant-name --selectors
    --target-url --artifacts-dir`, not the agreed `--workflow --params --run-id`. Run
@@ -261,8 +269,11 @@ Gaps that need Person 1 or the contracts owner (not worked around in production 
 - Subprocess stdout/stderr are buffered in memory. Output-volume limits and load
   testing are not implemented. Read-only result extraction and iframes remain
   unsupported; duplicate/dynamic labels may explicitly fail grounding.
-- The real runner now exists but does not speak the agreed CLI (see integration gaps
-  above). Its two-second step timeouts are in place.
+- The real runner does not speak the agreed CLI until `proposals/runner-backend-cli.patch`
+  is applied, and recovery cannot start until `contracts-target-url.patch` is applied.
+- Operator endpoints trust the socket peer address (loopback). Bind uvicorn to 127.0.0.1
+  and do not put a proxy in front that forwards `/api/v1/admin/*` or `/api/v1/status`.
+- Live Sentry delivery is still unverified; no DSN was available in these runs.
 - Local fixture measurements do not prove real portal latency or the 400 ms
   fast-path target. Live Sentry delivery, its UI presentation, and portal Session
   Replay remain unverified; in-memory trace/grouping checks are narrower evidence.

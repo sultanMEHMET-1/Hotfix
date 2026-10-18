@@ -59,7 +59,7 @@ MENDER_REAL_RUNNER=1 uv run --no-project --python 3.12 \
 ```
 
 The runner does not yet accept the agreed CLI, so these tests go through a test-only
-shim. See HANDOFF.md for the gaps and the interim `MENDER_RUNNER_SCRIPT` bridge. The
+shim (apply `proposals/runner-backend-cli.patch` to drop the shim). See HANDOFF.md for the gaps and the interim `MENDER_RUNNER_SCRIPT` bridge. The
 demo workflow definition is `workflows/permit-application.json`.
 
 ## Settings
@@ -305,3 +305,10 @@ Ordinary recoveries also retain `state/recovery-<id>.json` and log the same
 measurements once per background task. Joined requests do not duplicate usage.
 SDK step duration is not substituted for measured wall-clock time. SDK costs
 are optional estimates, not billing receipts. See HANDOFF.md for measured runs.
+
+## Rehearse the demo
+
+With the two proposals applied, start the portal (`.venv/bin/python services/portal/server.py`)
+and the backend (see Run), then `python -m services.backend.rehearse 5`. Each loop resets,
+runs the fast path, enables Chaos Mode, heals with the paid agent, and runs fast again. It
+exits with `N/N PASS`.
