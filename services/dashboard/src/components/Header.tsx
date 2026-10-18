@@ -43,7 +43,7 @@ export default function Header({ theme, onToggleTheme }: HeaderProps) {
     >
       <div className="mx-auto flex h-16 w-full max-w-[1180px] items-center justify-between gap-4 px-5 sm:px-9">
         <span className="flex cursor-default select-none items-center gap-2.5 font-display text-xl tracking-tight">
-          <Logo size={44} />
+          <Logo size={34} />
           Mender
         </span>
         <Tooltip label={isDark ? "Switch to light" : "Switch to dark"} align="end">
