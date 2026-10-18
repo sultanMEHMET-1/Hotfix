@@ -32,7 +32,7 @@ class ContractTests(unittest.TestCase):
 
     def test_all_response_fixtures_validate(self):
         fixtures = list((CONTRACTS / "fixtures").glob("workflow_*.json"))
-        self.assertEqual(len(fixtures), 3)
+        self.assertEqual(len(fixtures), 4)
         for path in fixtures:
             with self.subTest(fixture=path.name):
                 payload = load_json(path)
@@ -58,7 +58,7 @@ class ContractTests(unittest.TestCase):
         self.assertFalse(response.recovery_attempted)
         self.assertEqual(response.heal_records, [])
         wire = response.model_dump(exclude_none=True)
-        for field in ("agent_cost_usd", "agent_duration_ms", "error", "diff"):
+        for field in ("agent_cost_usd", "agent_duration_ms", "cooldown_remaining_s", "error", "diff"):
             self.assertNotIn(field, wire)
         self.validator.validate(wire)
 
@@ -68,6 +68,7 @@ class ContractTests(unittest.TestCase):
             ("negative latency", lambda p: p.update(execution_time_ms=-1)),
             ("negative cost", lambda p: p.update(agent_cost_usd=-1)),
             ("negative duration", lambda p: p.update(agent_duration_ms=-1)),
+            ("negative cooldown", lambda p: p.update(cooldown_remaining_s=-1)),
             ("extra field", lambda p: p.update(unapproved=True)),
             ("empty error", lambda p: p.update(error={"code": "", "message": ""})),
             ("invalid outcome", lambda p: p["heal_records"][0].update(verification_outcome="success")),
@@ -89,7 +90,7 @@ class ContractTests(unittest.TestCase):
 
     def test_nonfinite_metrics_do_not_serialize(self):
         valid = load_json(CONTRACTS / "fixtures/workflow_success.json")
-        for field in ("execution_time_ms", "agent_cost_usd", "agent_duration_ms"):
+        for field in ("execution_time_ms", "agent_cost_usd", "agent_duration_ms", "cooldown_remaining_s"):
             for value in (float("nan"), float("inf")):
                 with self.subTest(field=field, value=value):
                     with self.assertRaises(ValidationError):

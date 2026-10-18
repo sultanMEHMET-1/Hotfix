@@ -80,4 +80,6 @@ export interface WorkflowExecutionResponse {
   agent_cost_usd?: number | null;
   /** Total agent step time reported by Browser Use, in milliseconds. */
   agent_duration_ms?: number | null;
+  /** Only on a failed response served from the failure cooldown: seconds until a retry starts a fresh recovery. */
+  cooldown_remaining_s?: number | null;
 }

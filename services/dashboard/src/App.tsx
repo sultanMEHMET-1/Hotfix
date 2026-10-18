@@ -42,7 +42,7 @@ export default function App() {
 
         {phase === "error" && error && <ErrorBanner error={{ code: "request_failed", message: error.message }} />}
         {phase === "done" && result?.status === "failed" && result.error && (
-          <ErrorBanner error={result.error} />
+          <ErrorBanner key={result.trace_id} error={result.error} cooldownRemainingS={result.cooldown_remaining_s} />
         )}
 
         <div className="mt-4">

@@ -68,6 +68,8 @@ class M3Tests(M2Harness):
         self.assertEqual(len(self.recovery_files()), 1)
         self.assertEqual(second["error"], first["error"])
         self.assertNotEqual(second["trace_id"], first["trace_id"])
+        self.assertNotIn("cooldown_remaining_s", first)
+        self.assertAlmostEqual(second["cooldown_remaining_s"], 12.0)  # stored at 1000, 15 s window, now 1003
         self.assert_failed(second)
 
     async def test_different_failed_step_during_cooldown_starts_a_fresh_recovery(self):

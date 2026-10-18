@@ -57,6 +57,7 @@ Use provides XPath or accessibility evidence.
 - `heal_records` (optional array, defaults to empty)
 - `agent_cost_usd` (optional nonnegative number)
 - `agent_duration_ms` (optional nonnegative number)
+- `cooldown_remaining_s` (optional nonnegative number)
 
 ## Recovery response semantics
 
@@ -124,9 +125,9 @@ After a failed recovery the backend remembers that exact failure for 15 seconds 
 repeat of it from memory, without running the agent again. The repeat keeps the original
 `error` and `heal_records`, has its own `trace_id` and `execution_time_ms`, and carries no
 `agent_cost_usd` or `agent_duration_ms`. A different failure (another step, selector, or page)
-starts a fresh recovery. The response does not currently say a result was cached; a proposal
-to add `cooldown_remaining_s` is in `services/backend/proposals/cooldown-remaining-field.md`
-and is not part of this contract until all three owners agree.
+starts a fresh recovery. A response served from the cooldown sets `cooldown_remaining_s` to the
+seconds left before a retry would start a fresh recovery; the field is omitted on every other
+response, including the failure that started the cooldown. Consumers can show "retry in N s" from it.
 
 ## Contract checks
 

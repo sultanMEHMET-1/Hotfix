@@ -49,6 +49,7 @@ export function assertWorkflowExecutionResponse(value: unknown): asserts value i
     problems.push("heal_records");
   if (!isOptionalNumber(v.agent_cost_usd)) problems.push("agent_cost_usd");
   if (!isOptionalNumber(v.agent_duration_ms)) problems.push("agent_duration_ms");
+  if (!isOptionalNumber(v.cooldown_remaining_s)) problems.push("cooldown_remaining_s");
   if (problems.length > 0) {
     throw new Error(`Invalid run-workflow response: missing or malformed field(s): ${problems.join(", ")}`);
   }

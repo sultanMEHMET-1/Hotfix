@@ -160,6 +160,7 @@ def create_app(settings=None):
                 error = None
                 data = {}
                 records = []
+                cooldown_remaining = None
                 owner = False
                 outcome = None
                 recovery = app.state.recovery
@@ -206,6 +207,7 @@ def create_app(settings=None):
                                     hit = recovery.cached(request.workflow, result.failure, selectors)
                                     if hit:
                                         attempted, outcome = True, hit["outcome"]
+                                        cooldown_remaining = max(0.0, hit["expires"] - recovery.clock())
                                         log.warning("Cached failure from recovery %s; %.1f s remaining", hit["recovery_id"],
                                                     hit["expires"] - recovery.clock(), extra={"phase": "COOLDOWN"})
                                     else:
@@ -271,6 +273,7 @@ def create_app(settings=None):
                     # Measurements belong to the request that ran the agent, never waiters or cache hits.
                     agent_cost_usd=outcome.agent_cost_usd if owner and outcome else None,
                     agent_duration_ms=outcome.agent_duration_ms if owner and outcome else None,
+                    cooldown_remaining_s=cooldown_remaining,
                 )
                 payload = response.model_dump(mode="json", exclude_none=True)
                 if not records:

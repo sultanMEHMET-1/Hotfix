@@ -89,3 +89,4 @@ class WorkflowExecutionResponse(_StrictModel):
     heal_records: list[HealRecord] = Field(default_factory=list)
     agent_cost_usd: float | None = Field(default=None, ge=0, allow_inf_nan=False)
     agent_duration_ms: float | None = Field(default=None, ge=0, allow_inf_nan=False)
+    cooldown_remaining_s: float | None = Field(default=None, ge=0, allow_inf_nan=False)
