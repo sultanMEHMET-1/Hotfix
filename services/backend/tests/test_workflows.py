@@ -105,6 +105,34 @@ class MultiWorkflowTests(M2Harness):
         self.assertEqual(self.read(self.other_path)["fields"], self.other_baseline["fields"])
         self.assertEqual((await self.multi_client.post("/api/v1/admin/reset", json={"workflow": "nope"})).status_code, 404)
 
+    async def test_reset_rejects_a_malformed_body_without_touching_any_map(self):
+        for path, base in ((self.path, self.baseline), (self.other_path, self.other_baseline)):
+            path.write_text(json.dumps({**base, "version": 3, "fields": {**base["fields"], "submit_button": "#drifted"}}))
+        for body in (b'{"workflow": "sample-lookup"', b"[]", b'{"workflow": []}', b'{"workflow": 5}'):
+            with self.subTest(body=body):
+                reply = await self.multi_client.post("/api/v1/admin/reset", content=body, headers={"content-type": "application/json"})
+                self.assertEqual(reply.status_code, 422)
+        self.assertEqual(self.read(self.path)["fields"]["submit_button"], "#drifted")
+        self.assertEqual(self.read(self.other_path)["fields"]["submit_button"], "#drifted")
+
+    async def test_reset_all_changes_nothing_when_one_committed_map_is_missing(self):
+        for path, base in ((self.path, self.baseline), (self.other_path, self.other_baseline)):
+            path.write_text(json.dumps({**base, "version": 3, "fields": {**base["fields"], "submit_button": "#drifted"}}))
+        self.git(["rm", "-q", "--cached", "contracts/selectors/other-lookup.json"])
+        self.git(["-c", "user.name=t", "-c", "user.email=t@t", "commit", "-qm", "drop"])
+        reply = await self.multi_client.post("/api/v1/admin/reset")
+        self.assertEqual(reply.status_code, 500)
+        self.assertEqual(self.read(self.path)["fields"]["submit_button"], "#drifted")  # not half reset
+        self.assertEqual(self.read(self.other_path)["version"], 3)
+
+    async def test_reset_works_when_startup_stopped_before_the_default_workflow_was_chosen(self):
+        for path, base in ((self.path, self.baseline), (self.other_path, self.other_baseline)):
+            path.write_text(json.dumps({**base, "version": 3, "fields": {**base["fields"], "submit_button": "#drifted"}}))
+        self.multi.state.default_workflow = None
+        reply = (await self.multi_client.post("/api/v1/admin/reset")).json()
+        self.assertEqual(reply["versions"], {"other-lookup": 4, "sample-lookup": 4})
+        self.assertIsNotNone(reply["version"])
+
     async def test_reset_refuses_only_a_workflow_that_is_recovering(self):
         gate = asyncio.Event()
 
