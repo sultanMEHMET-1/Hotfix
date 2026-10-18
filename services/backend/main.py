@@ -10,6 +10,7 @@ from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, ConfigDict, Field
 import sentry_sdk
+from sentry_sdk.integrations.logging import LoggingIntegration
 
 from contracts.api_types import RecoveryError, WorkflowExecutionResponse
 from .config import BackendError, Settings, load_workflows, read_json, validator, write_allowed
@@ -52,6 +53,10 @@ def create_app(settings=None):
         configure_logging()
         sentry_sdk.init(
             traces_sample_rate=1.0, enable_logs=True, include_local_variables=False,
+            # Logs stay searchable in Sentry, but only our own fingerprinted events become issues.
+            # Otherwise every ERROR line (ours, Browser Use, Google) is a separate issue, and one
+            # failed recovery opens six of them.
+            integrations=[LoggingIntegration(capture_sentry_logs=True, level=logging.INFO, event_level=None)],
         )
         app.state.configuration_error = None
         app.state.diagnose = None
