@@ -8,7 +8,7 @@ import { AnimatePresence, m, useReducedMotion } from "framer-motion";
 export default function Tooltip({ label, children, align = "center", className = "" }: {
   label: string;
   children: ReactElement;
-  align?: "center" | "start";
+  align?: "center" | "start" | "end";
   /** Extra classes for the wrapper, for example to join a button group. */
   className?: string;
 }) {
@@ -57,7 +57,7 @@ export default function Tooltip({ label, children, align = "center", className =
             exit={{ opacity: 0 }}
             transition={{ duration: 0.14 }}
             className={`pointer-events-none absolute top-full z-[60] mt-2 whitespace-nowrap rounded-panel border-[1.5px] border-ink bg-surface px-2.5 py-1.5 text-sm font-medium text-ink shadow-print-sm ${
-              align === "start" ? "left-0" : "left-1/2 -translate-x-1/2"
+              align === "start" ? "left-0" : align === "end" ? "right-0" : "left-1/2 -translate-x-1/2"
             }`}
           >
             {label}

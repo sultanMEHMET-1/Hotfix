@@ -38,9 +38,12 @@ describe("the page chrome", () => {
     expect(container.querySelectorAll("[title]")).toHaveLength(0);
   });
 
-  it("offers the Light | Dark switch as two buttons", () => {
+  it("flips the theme with one icon button whose label names the action", () => {
     render(<App />);
-    expect(screen.getByRole("button", { name: "Light" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Dark" })).toBeInTheDocument();
+    const toggle = screen.getByRole("button", { name: /Switch to (dark|light) mode/ });
+    const before = toggle.getAttribute("aria-label");
+    fireEvent.click(toggle);
+    expect(screen.getByRole("button", { name: /Switch to (dark|light) mode/ }).getAttribute("aria-label")).not.toBe(before);
+    expect(screen.queryByRole("button", { name: "Light" })).toBeNull();
   });
 });
