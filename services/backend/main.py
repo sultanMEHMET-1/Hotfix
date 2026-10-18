@@ -13,7 +13,7 @@ import sentry_sdk
 from sentry_sdk.integrations.logging import LoggingIntegration
 
 from contracts.api_types import RecoveryError, WorkflowExecutionResponse, WorkflowSummary
-from .config import BackendError, Settings, load_workflows, read_json, validator, write_allowed
+from .config import BackendError, Settings, load_workflows, prune_runs, read_json, validator, write_allowed
 from .recovery import Recovery
 from .reset import restore_original
 from .runner import Runner
@@ -61,6 +61,8 @@ def create_app(settings=None):
             # Otherwise every ERROR line (ours, Browser Use, Google) is a separate issue, and one
             # failed recovery opens six of them.
             integrations=[LoggingIntegration(capture_sentry_logs=True, level=logging.INFO, event_level=None)],
+            # Profiles run while a sampled trace is active, so both the 0.4 s fast path and a heal are profiled.
+            profile_session_sample_rate=1.0, profile_lifecycle="trace",
         )
         app.state.configuration_error = None
         app.state.diagnose = None
@@ -81,6 +83,17 @@ def create_app(settings=None):
                 if not referenced_fields(definition) <= set(selector_map["fields"]):
                     raise ValueError("A workflow references unknown selector fields")
                 app.state.stores[workflow_id] = store
+            for workflow_id, store in app.state.stores.items():
+                async with store.lock(exclusive=True):
+                    restored = store.recover_inflight()
+                if restored is not None:
+                    log.warning("Interrupted recovery for %s: baseline restored as selector version %s", workflow_id,
+                                restored, extra={"phase": "ROLLBACK"})
+                    sentry_sdk.capture_event({"level": "warning", "fingerprint": ["mender.crash-recovery", workflow_id],
+                                              "message": f"Interrupted recovery for {workflow_id}: baseline restored"})
+            pruned = prune_runs(settings.root / "runs")
+            if pruned:
+                log.info("Pruned %s old failure-artifact folders", pruned)
             if settings.demo_workflow and settings.demo_workflow not in app.state.workflows:
                 raise ValueError("Configured default workflow definition is missing")
             names = sorted(app.state.workflows)

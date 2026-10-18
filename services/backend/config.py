@@ -4,6 +4,7 @@ from dataclasses import dataclass
 import json
 import os
 from pathlib import Path
+import shutil
 import sys
 from urllib.parse import urlsplit
 
@@ -111,6 +112,16 @@ def load_workflows(settings: Settings):
         masked_output(workflow.canary.expected_output, workflow.canary.ignore_paths)
         workflows[path.stem] = (workflow, params_validator, output_validator)
     return workflows
+
+
+def prune_runs(folder: Path, keep: int = 50):
+    """Delete the oldest failure-artifact folders, keeping the newest `keep`. Run once at startup, never mid-run."""
+    if not folder.is_dir():
+        return 0
+    runs = sorted((path for path in folder.iterdir() if path.is_dir()), key=lambda path: path.stat().st_mtime, reverse=True)
+    for old in runs[keep:]:
+        shutil.rmtree(old, ignore_errors=True)
+    return max(0, len(runs) - keep)
 
 
 def masked_output(data: dict, paths: list[str]):

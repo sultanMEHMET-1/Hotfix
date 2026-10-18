@@ -160,6 +160,7 @@ class Recovery:
                         else:
                             validate_failure(workflow_id, workflow, baseline, result)
                             backup_path = store.backup(result.run_id, baseline)
+                            store.mark_inflight(backup_path, baseline["version"])
                             current = baseline
                             outcome.attempted = True
                             diagnose = self.app.state.diagnose
@@ -273,6 +274,7 @@ class Recovery:
                             outcome.error = BackendError("rollback_failed", self.app.state.configuration_error)
                             sentry_sdk.capture_exception()
                     if not rollback_failed:
+                        store.clear_inflight()  # the map is consistent again; a failed rollback leaves the marker for startup
                         outcome.records = [HealRecord(
                             field=d["field"], diff=d["diff"], evidence=d["evidence"], version_before=d["before"],
                             verification_outcome="rejected" if d["after"] is None else ("committed" if committed else "rolled_back"),
