@@ -166,7 +166,7 @@ are in [services/backend/HANDOFF.md](services/backend/HANDOFF.md#sentry).
 | --- | --- |
 | Backend (default, no model calls; 198 tests, the browser, real-runner, public-site and paid ones skip) | `uv run --no-project --python 3.12 --with-requirements services/backend/requirements-test.txt python -B -m unittest discover -s services/backend/tests` |
 | Runner (12 tests) | `cd services/runner && ../../.venv/bin/python -m unittest test_execute` |
-| Dashboard (81 tests) | `cd services/dashboard && npm run typecheck && npm test` |
+| Dashboard (85 tests) | `cd services/dashboard && npm run typecheck && npm test` |
 
 With `MENDER_REAL_RUNNER=1 MENDER_BROWSER_TEST=1 MENDER_PUBLIC_TEST=1` and the live requirements, only the 5 paid
 Gemini tests skip. All flags and costs are in [services/backend/README.md](services/backend/README.md#tests-and-tools).

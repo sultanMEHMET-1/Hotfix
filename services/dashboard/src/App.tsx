@@ -5,7 +5,7 @@ import { DEFAULT_WORKFLOW, listWorkflows } from "./api/client";
 import type { MockScenario } from "./api/mocks";
 import { useWorkflowRun } from "./hooks/useWorkflowRun";
 import { useTheme } from "./hooks/useTheme";
-import { isCreated, publicSite, workflowTitle } from "./lib/workflowLabel";
+import { isCreated, paramLabel, publicSite, workflowTitle } from "./lib/workflowLabel";
 import { USE_MOCKS, setUseMocks } from "./config";
 import Header from "./components/Header";
 import ControlRow from "./components/ControlRow";
@@ -24,7 +24,12 @@ export default function App() {
   const [workflowId, setWorkflowId] = useState(DEFAULT_WORKFLOW.id);
   // Per workflow: corrections from runs before this time are hidden (cleared by hand, or undone by a selector reset).
   const [clearedAt, setClearedAt] = useState<Record<string, number>>({});
+  // Per workflow: values typed into its input boxes (public read-only workflows only).
+  const [typed, setTyped] = useState<Record<string, Record<string, string>>>({});
   const workflow = workflows.find((w) => w.id === workflowId) ?? workflows[0];
+  const inputs = mocksOn || workflow.mutates || !publicSite(workflow.id) ? [] : Object.entries(workflow.example_params)
+    .filter((entry): entry is [string, string] => typeof entry[1] === "string")
+    .map(([name, example]) => ({ name, label: paramLabel(workflow.id, name), example, value: typed[workflow.id]?.[name] ?? example }));
   const { phase, result, error, benchmarks, history, trigger } = useWorkflowRun(mocksOn, workflow.id);
 
   // Ask the backend what it can run (mock mode offers two canned workflows).
@@ -72,7 +77,9 @@ export default function App() {
                 result={result}
                 scenario={scenario}
                 onScenarioChange={setScenario}
-                onTrigger={() => trigger({ scenario, workflow })}
+                onTrigger={() => trigger({ scenario, workflow: { ...workflow, example_params: { ...workflow.example_params, ...Object.fromEntries(inputs.map((i) => [i.name, i.value.trim()])) } } })}
+                inputs={inputs}
+                onInputChange={(name, value) => setTyped((all) => ({ ...all, [workflow.id]: { ...all[workflow.id], [name]: value } }))}
                 mocksOn={mocksOn}
                 onToggleMocks={toggleMocks}
                 workflows={workflows}

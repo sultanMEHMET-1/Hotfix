@@ -11,7 +11,7 @@ The look is a printed lab ledger: vellum paper (warm espresso in dark mode), har
 ```bash
 npm ci
 npm run dev        # http://127.0.0.1:5173 (bound to localhost on purpose, see below)
-npm run typecheck && npm test   # 81 tests, independent of any .env.local
+npm run typecheck && npm test   # 85 tests, independent of any .env.local
 npm run build
 ```
 
@@ -25,6 +25,8 @@ The **Live** switch (outlined while off, filled while on) chooses where response
 What the UI does:
 
 - **Workflow picker.** Asks `GET /api/v1/workflows` and offers each workflow by the name of its site (Permit portal, Inventory desk marked "writes", Wikipedia, Python releases, Books, Quotes; a created workflow is named by its goal). The title reads "Selected: <name>". **Trigger workflow** runs the selected one with its example parameters: `POST /api/v1/run-workflow {"workflow": <id>, "params": {...}}`. A finished run's result, status and error show only on the workflow it ran for.
+- **Typed input** (live, public sites only). A read-only public workflow with a text parameter (Wikipedia's article title) shows a labelled box above **Trigger workflow**, filled with the example. Enter runs it, an empty box disables the trigger and says why, and the value is sent as the workflow's parameter. Values are kept per workflow until reload. Sample mode, the permit portal and the inventory desk keep their fixed examples.
+- **Result.** A finished run prints what it read (for example `heading  Ada Lovelace`) under the controls, as a ledger line in the monospace face.
 - **Reset selectors** (live only). Calls the backend's loopback-only `POST /api/v1/admin/reset` for the selected workflow, to put its original selectors back between demo runs. It is disabled while a run is in progress, shows the backend's own message if it refuses, and says so if the backend stays blocked.
 - **Corrections pile up.** Every repair this session stays in the Corrections list, newest first, one group per run (a rolled-back attempt too), shown as diffs with one plain sentence on what the agent did. A run that changes nothing neither adds nor removes anything. **Clear corrections** hides them, and a successful **Reset selectors** clears the selected workflow's list, since the repairs were undone. The list is per workflow and lives in the page, so a reload empties it.
 - **Create from a sentence** (Wikipedia, Python releases, Books, Quotes). A box with one-click example sentences that were each run for real. **Create workflow** takes under a minute and about a cent, with a live clock, then shows a preview (steps in plain words, the sample JSON result, cost and time) to **Save** or **Discard**. A saved workflow joins the picker and can be deleted. Saving and deleting wait while a run is in flight, and the panel starts fresh when the selection moves to another site. The backend's own refusal message is shown as it is; the always-visible limits list says what is refused.

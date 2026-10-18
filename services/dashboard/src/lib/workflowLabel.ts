@@ -35,6 +35,14 @@ export function workflowLabel(id: string, goal?: string): string {
   return spaced.charAt(0).toUpperCase() + spaced.slice(1);
 }
 
+const PARAM_LABELS: Record<string, string> = { "wikipedia-article:title": "Article title" };
+
+/** What a person calls a parameter: a known label, else the parameter name capitalised. */
+export function paramLabel(id: string, name: string): string {
+  const spaced = name.replace(/_/g, " ");
+  return PARAM_LABELS[`${id}:${name}`] ?? spaced.charAt(0).toUpperCase() + spaced.slice(1);
+}
+
 const SITE_HINTS: Record<string, string> = {
   "permit-application": "Looks up a permit",
   "record-update": "Edits a price on the site",
