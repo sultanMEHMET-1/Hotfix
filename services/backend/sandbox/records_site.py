@@ -4,8 +4,8 @@
 State is in memory. Each press of "Break something" applies one more change (POST /chaos
 {"next": true}): the save button moves into a dialog (chaos), the Record ID box gets a new id
 (input), the saved value's test id is renamed (read), decoy buttons and a search box appear
-(hard), and finally a sign-in wall replaces the form (login). At most two changes that break a
-selector are active at once, and the login wall comes last. POST /chaos {"break": "<name>"}
+(hard). At most two changes that break a selector are active at once. A separate "Add sign-in
+wall" button (POST /chaos {"break": "login"}) replaces the form with a sign-in wall. POST /chaos {"break": "<name>"}
 applies one change deterministically, and the original {"enabled", "hard", "read"} body still
 sets the flags directly. GET /state shows records, write count, last save and the active
 changes; POST /reset restores the seed inventory and removes every change.
@@ -64,14 +64,12 @@ def applied(state):
 
 
 def next_break(state, rng):
-    """The next change a click applies: a random heal-able one, then the sign-in wall, then nothing."""
+    """The next change a click applies: a random heal-able one, then nothing. The sign-in wall has its own button."""
     active = applied(state)
     pool = [key for key in ("button", "input", "read", "decoys") if key not in active]
     if sum(BREAKS[key][2] for key in active) >= MAX_SELECTOR_BREAKS:
         pool = [key for key in pool if not BREAKS[key][2]]
-    if pool:
-        return rng.choice(pool)
-    return None if "login" in active else "login"
+    return rng.choice(pool) if pool else None
 
 
 def describe(state):
@@ -152,7 +150,7 @@ FORM = """<form id="record-form">
 SCRIPT = """
 (() => {
   const form = document.querySelector('#record-form'), toggle = document.querySelector('#break-btn');
-  const restore = document.querySelector('#restore-btn');
+  const restore = document.querySelector('#restore-btn'), loginBtn = document.querySelector('#login-btn');
   const button = document.querySelector('#save-btn'), result = document.querySelector('#result');
   const error = document.querySelector('#action-error'), search = document.querySelector('#inventory-filter');
   const category = document.querySelector('#category-filter'), rendered = new Map();
@@ -169,6 +167,7 @@ SCRIPT = """
     update('modes', modes, () => {
       document.body.classList.toggle('chaos', modes.chaos);
       text('break-btn', modes.login ? 'Nothing left to break' : 'Break something');
+      text('login-btn', modes.login ? 'Sign-in wall up' : 'Add sign-in wall');
       syncButtons();
       const field = form.elements.record_id, label = form.querySelector('label');
       field.id = modes.input ? 'rid' : 'record-id'; label.htmlFor = field.id;
@@ -194,7 +193,7 @@ SCRIPT = """
     });
   }
   function anyBroken() { return modes.chaos || modes.hard || modes.read || modes.input || modes.login; }
-  function syncButtons() { toggle.disabled = pending || modes.login; restore.disabled = pending || !anyBroken(); }
+  function syncButtons() { toggle.disabled = pending || modes.login; loginBtn.disabled = pending || modes.login; restore.disabled = pending || !anyBroken(); }
   function stock(quantity) { return quantity === 0 ? 'Out' : quantity < 5 ? 'Low' : 'In stock'; }
   function matching(record, details) { return `${record} ${details.name}`.toLowerCase().includes(search.value.toLowerCase()); }
   function rows() {
@@ -304,6 +303,7 @@ SCRIPT = """
     await refresh();
   }
   toggle.addEventListener('click', () => changeChaos({next: true}));
+  loginBtn.addEventListener('click', () => changeChaos({break: 'login'}));
   restore.addEventListener('click', () => changeChaos({enabled: false, hard: false, read: false, input: false, login: false}));
   form.addEventListener('submit', async (event) => {
     event.preventDefault();
@@ -377,7 +377,7 @@ def render():
                f'<script>{SCRIPT.replace("__MODES__", modes)}</script>')
     page = shell("Inventory", content, scripts)
     return page.replace('</nav>', '<span id="chaos-note" role="status"></span><button id="break-btn" type="button">Break something</button>'
-                       '<button id="restore-btn" type="button" disabled>Restore site</button></nav>', 1)
+                       '<button id="login-btn" type="button">Add sign-in wall</button><button id="restore-btn" type="button" disabled>Restore site</button></nav>', 1)
 
 
 STATIC_PAGES = {

@@ -46,7 +46,7 @@ class SeedInventoryTests(unittest.TestCase):
 
 
 class BreakSequenceTests(unittest.TestCase):
-    def test_clicks_pick_heal_able_breaks_then_the_login_wall_then_nothing(self):
+    def test_clicks_pick_heal_able_breaks_then_nothing_and_never_the_login_wall(self):
         from services.backend.sandbox import records_site as site
         state = site.fresh_state()
         rng = random.Random(7)
@@ -55,7 +55,7 @@ class BreakSequenceTests(unittest.TestCase):
             seen.append(key)
             state[site.BREAKS[key][0]] = True
             self.assertLessEqual(sum(site.BREAKS[k][2] for k in site.applied(state)), site.MAX_SELECTOR_BREAKS)
-        self.assertEqual(seen[-1], "login")
+        self.assertNotIn("login", seen)
         self.assertIn("decoys", seen)
         self.assertEqual(sum(site.BREAKS[k][2] for k in seen), site.MAX_SELECTOR_BREAKS)
         self.assertEqual(len(seen), len(set(seen)))

@@ -122,9 +122,10 @@ For the write demo, start the inventory site and open `http://127.0.0.1:3100/rec
 2. Click **Break something** on the inventory page. Each click applies one more change, and a note beside the
    button says what changed: the save button moves into an authorization dialog, the Record ID box gets a new
    id, the saved value's test id is renamed, or decoy buttons and a search box appear. At most two changes
-   that break a selector are active at once, so a repair never needs more than two agent runs. A further click
-   puts up a sign-in wall in place of the form: the agent must stop and fail honestly, with no records and no
-   writes. That last one is a dead end by design; it is there to show the refusal. Trigger the workflow after
+   that break a selector are active at once, so a repair never needs more than two agent runs. The separate
+   **Add sign-in wall** button puts a sign-in wall in place of the form: the agent must stop and fail honestly, with
+   no records and no writes, and the dashboard says it was blocked by a sign-in wall. It is a dead end by design,
+   there to show the refusal; **Restore site** clears it. Trigger the workflow after
    each break to demonstrate the repair (one change, then two together), then once more for the fast path.
    **Restore site** removes every change.
 3. The agent, replay and canary each save during a successful heal. Repeated sets are safe, and the
