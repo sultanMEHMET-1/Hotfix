@@ -1,4 +1,6 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import type { WorkflowSummary } from "@contracts/api_types";
+import { DEFAULT_WORKFLOW, listWorkflows } from "./api/client";
 import type { MockScenario } from "./api/mocks";
 import { useWorkflowRun } from "./hooks/useWorkflowRun";
 import { useTheme } from "./hooks/useTheme";
@@ -13,9 +15,25 @@ import VisualDiffViewer from "./components/VisualDiffViewer";
 import RunLog from "./components/RunLog";
 
 export default function App() {
-  const { phase, result, error, benchmarks, history, trigger } = useWorkflowRun();
-  const [scenario, setScenario] = useState<MockScenario>("fast");
   const [mocksOn, setMocksOn] = useState(USE_MOCKS);
+  const { phase, result, error, benchmarks, history, trigger } = useWorkflowRun(mocksOn);
+  const [scenario, setScenario] = useState<MockScenario>("fast");
+  const [workflows, setWorkflows] = useState<WorkflowSummary[]>([DEFAULT_WORKFLOW]);
+  const [workflowId, setWorkflowId] = useState(DEFAULT_WORKFLOW.id);
+  const workflow = workflows.find((w) => w.id === workflowId) ?? workflows[0];
+
+  // Ask the backend what it can run (mock mode offers two canned workflows).
+  useEffect(() => {
+    const controller = new AbortController();
+    listWorkflows(controller.signal).then(
+      (list) => {
+        setWorkflows(list.length ? list : [DEFAULT_WORKFLOW]);
+        setWorkflowId((current) => (list.some((w) => w.id === current) ? current : (list[0] ?? DEFAULT_WORKFLOW).id));
+      },
+      () => setWorkflows([DEFAULT_WORKFLOW]),
+    );
+    return () => controller.abort();
+  }, [mocksOn]);
   const [theme, toggleTheme] = useTheme();
   const [tab, setTab] = useState<TabId>("overview");
   const { display: displayedTab, visible: tabVisible } = useFadeSwitch(tab);
@@ -29,15 +47,18 @@ export default function App() {
   return (
     <div className="min-h-screen bg-surface-subtle">
       <div className="mx-auto w-full max-w-[1120px] px-6 pb-16 sm:px-9">
-        <Header mocksOn={mocksOn} onToggleMocks={toggleMocks} theme={theme} onToggleTheme={toggleTheme} />
+        <Header workflowId={workflow.id} mocksOn={mocksOn} onToggleMocks={toggleMocks} theme={theme} onToggleTheme={toggleTheme} />
 
         <ControlRow
           phase={phase}
           result={result}
           scenario={scenario}
           onScenarioChange={setScenario}
-          onTrigger={() => trigger({ scenario })}
+          onTrigger={() => trigger({ scenario, workflow })}
           mocksOn={mocksOn}
+          workflows={workflows}
+          workflowId={workflow.id}
+          onWorkflowChange={setWorkflowId}
         />
 
         {phase === "error" && error && <ErrorBanner error={{ code: "request_failed", message: error.message }} />}

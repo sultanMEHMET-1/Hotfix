@@ -13,6 +13,8 @@ export default defineConfig({
   },
   server: {
     port: 5173,
+    // Localhost only: the backend trusts the dev proxy as a loopback caller for its admin endpoints.
+    host: "127.0.0.1",
     fs: { allow: ["..", "../../contracts"] },
     proxy: {
       "/api": "http://localhost:8000",

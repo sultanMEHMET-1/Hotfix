@@ -1,8 +1,9 @@
-import type { WorkflowExecutionResponse } from "@contracts/api_types";
+import type { WorkflowExecutionResponse, WorkflowSummary } from "@contracts/api_types";
 import type { MockScenario } from "../api/mocks";
 import { executionPathLabel } from "../lib/cost";
 import type { RunPhase } from "../hooks/useWorkflowRun";
 import ResetButton from "./ResetButton";
+import WorkflowPicker from "./WorkflowPicker";
 import StatusBadge, { badgeState, failedCopy } from "./StatusBadge";
 
 const SCENARIOS: { value: MockScenario; label: string }[] = [
@@ -18,9 +19,12 @@ export interface ControlRowProps {
   onScenarioChange: (s: MockScenario) => void;
   onTrigger: () => void;
   mocksOn: boolean;
+  workflows: WorkflowSummary[];
+  workflowId: string;
+  onWorkflowChange: (id: string) => void;
 }
 
-export default function ControlRow({ phase, result, scenario, onScenarioChange, onTrigger, mocksOn }: ControlRowProps) {
+export default function ControlRow({ phase, result, scenario, onScenarioChange, onTrigger, mocksOn, workflows, workflowId, onWorkflowChange }: ControlRowProps) {
   const running = phase === "running-fast" || phase === "running-healing";
   const state = badgeState(phase, result);
   // While a run is in flight the previous result no longer describes it, so only the live label shows.
@@ -46,7 +50,9 @@ export default function ControlRow({ phase, result, scenario, onScenarioChange, 
         )}
       </div>
 
-      {!mocksOn && <ResetButton disabled={running} />}
+      <WorkflowPicker workflows={workflows} selected={workflowId} onSelect={onWorkflowChange} disabled={running} />
+
+      {!mocksOn && <ResetButton disabled={running} workflow={workflowId} />}
 
       {mocksOn && (
         <div className="flex items-center gap-1 rounded-lg border border-line bg-surface p-1">
