@@ -11,7 +11,7 @@ export interface WorkflowPickerProps {
 export default function WorkflowPicker({ workflows, selected, onSelect, disabled }: WorkflowPickerProps) {
   if (workflows.length < 2) return null;
   return (
-    <div className="flex flex-wrap" role="group" aria-label="Workflow">
+    <div className="flex w-full flex-col sm:w-auto sm:flex-row" role="group" aria-label="Workflow">
       {workflows.map((w) => {
         const on = selected === w.id;
         return (
@@ -22,14 +22,12 @@ export default function WorkflowPicker({ workflows, selected, onSelect, disabled
             onClick={() => onSelect(w.id)}
             aria-pressed={on}
             title={w.goal}
-            className={`-ml-[1.5px] flex min-h-[44px] items-center gap-2.5 border-[1.5px] border-ink px-4 font-mono text-sm first:ml-0 disabled:cursor-not-allowed disabled:opacity-50 ${
+            className={`-mt-[1.5px] flex min-h-[44px] items-center gap-2.5 border-[1.5px] border-ink px-4 font-mono text-sm first:mt-0 sm:-ml-[1.5px] sm:mt-0 sm:first:ml-0 disabled:cursor-not-allowed disabled:opacity-50 ${
               on ? "bg-ink font-semibold text-ground" : "bg-surface text-ink-muted hover:bg-surface-subtle hover:text-ink"
             }`}
           >
             {w.id}
-            {w.mutates && (
-              <span className={`rounded-panel border px-1.5 py-0.5 text-xs font-medium ${on ? "border-ground text-ground" : "border-warning text-warning"}`}>writes</span>
-            )}
+            {w.mutates && <span className={`font-sans text-sm italic ${on ? "text-ground" : "text-warning"}`}>writes</span>}
           </button>
         );
       })}

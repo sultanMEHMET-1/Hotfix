@@ -1,12 +1,6 @@
 import type { RunHistoryEntry } from "../hooks/useWorkflowRun";
 import { formatMs, formatUsd } from "../lib/format";
 
-const STATUS_MARK: Record<string, string> = {
-  success: "border-success bg-success",
-  healed: "border-warning bg-warning",
-  failed: "border-danger bg-danger",
-};
-
 const STATUS_TEXT: Record<string, string> = {
   success: "text-success",
   healed: "text-warning",
@@ -44,8 +38,7 @@ export default function RunLog({ history }: { history: RunHistoryEntry[] }) {
                     {new Date(entry.startedAt).toLocaleTimeString("en-US", { hour12: false })}
                   </td>
                   <td className="whitespace-nowrap px-3 py-3">
-                    <span className={`inline-flex items-center gap-2 text-base ${STATUS_TEXT[entry.response.status] ?? "text-ink-muted"}`}>
-                      <span aria-hidden="true" className={`h-3 w-3 border-[1.5px] ${STATUS_MARK[entry.response.status] ?? "border-ink-faint"}`} />
+                    <span className={`text-base ${STATUS_TEXT[entry.response.status] ?? "text-ink-muted"}`}>
                       {entry.response.status}
                     </span>
                   </td>

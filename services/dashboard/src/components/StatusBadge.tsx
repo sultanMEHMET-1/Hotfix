@@ -29,15 +29,6 @@ const COPY: Record<BadgeState, string> = {
   failed: "Reverted after a failed recovery",
 };
 
-// A square ink marker, filled by meaning: green applied or fast, amber agent at work, oxblood failed.
-const MARK: Record<BadgeState, string> = {
-  idle: "border-ink-faint bg-transparent",
-  fast: "border-success bg-success",
-  healing: "border-warning bg-warning",
-  healed: "border-success bg-success",
-  failed: "border-danger bg-danger",
-};
-
 const TEXT: Record<BadgeState, string> = {
   idle: "text-ink-muted",
   fast: "text-ink",
@@ -48,9 +39,8 @@ const TEXT: Record<BadgeState, string> = {
 
 export default function StatusBadge({ state, label }: { state: BadgeState; label?: string }) {
   return (
-    <div className="flex items-center gap-3" role="status">
-      <span aria-hidden="true" className={`h-4 w-4 shrink-0 border-[1.5px] ${MARK[state]} ${state === "healing" ? "motion-safe:animate-pulse" : ""}`} />
-      <span className={`font-display text-lg leading-tight ${TEXT[state]}`}>{label ?? COPY[state]}</span>
+    <div role="status" className={`font-display text-lg leading-tight ${TEXT[state]} ${state === "healing" ? "motion-safe:animate-pulse" : ""}`}>
+      {label ?? COPY[state]}
     </div>
   );
 }

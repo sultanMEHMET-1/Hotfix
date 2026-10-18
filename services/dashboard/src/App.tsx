@@ -52,9 +52,8 @@ export default function App() {
 
         <main id="main">
           <div className="mt-10">
-            <h1 className="break-words font-mono text-[clamp(2rem,5.5vw,3.5rem)] font-medium leading-tight tracking-tight">
-              <span className="mr-3 font-sans text-lg font-normal tracking-normal text-ink-muted sm:text-xl">Selected:</span>
-              <span>{workflow.id}</span>
+            <h1 className="break-words text-[clamp(2rem,5vw,3.25rem)] leading-[1.05] tracking-tight">
+              <span className="text-ink-muted">Selected:</span> <span>{workflow.id}</span>
             </h1>
             <p className="mt-2 max-w-[62ch] text-base text-ink-muted">{workflow.goal}</p>
           </div>
