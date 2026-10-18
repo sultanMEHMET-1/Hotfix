@@ -28,7 +28,12 @@ def chaos(enabled):
 
 
 def run_once(page, expect):
-    """Click Trigger, wait for the run to finish, then require every expected text on the page."""
+    """Reload, click Trigger, wait for the run to finish, then require every expected text on the page.
+
+    The reload clears the previous run's result, so expected text can only come from this run.
+    """
+    page.reload()
+    page.wait_for_selector("button:has-text('Trigger workflow')")
     started = time.perf_counter()
     page.get_by_role("button", name="Trigger workflow").click()
     page.wait_for_selector("button:has-text('Trigger workflow')", timeout=300_000)
@@ -36,6 +41,8 @@ def run_once(page, expect):
     elapsed = time.perf_counter() - started
     body = page.locator("body").inner_text()
     missing = [text for text in expect if text not in body]
+    if "Run failed" in body or "Recovery failed" in body:
+        missing.append("a failure label was shown")
     return elapsed, missing
 
 

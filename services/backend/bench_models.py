@@ -30,6 +30,7 @@ from services.backend.config import Settings
 from services.backend.main import create_app
 from services.backend.tests.test_real_runner import DEFINITION, PARAMS, ROOT, VENV_PYTHON, free_port
 
+UNKNOWN_COST_USD = 0.15  # counted toward --max-usd when a trial reports no reliable cost
 SHIM = ROOT / "services/backend/tests/fixtures/real_runner_shim.py"
 STABLE = ("data-action", "data-testid", "aria-label", "[id", "#")  # attribute or id based
 FRAGILE = ("nth-", ">", ":first", ":last")
@@ -66,8 +67,11 @@ def trial(model, portal, chrome):
                 started = time.perf_counter()
                 heal = post()
                 wall = time.perf_counter() - started
+                if "status" not in heal:  # an HTTP error body, for example 503 or 422
+                    heal = {"status": "error", "data": {}, "error": {"code": f"http_{heal.get('detail', 'error')}"[:60]}}
                 selector = json.loads((root / "contracts/selectors.json").read_text())["fields"]["submit_button"]
                 after = post()
+                after.setdefault("status", "error")
                 urlopen(Request(f"{portal}/chaos", b'{"enabled": false}', {"content-type": "application/json"}, method="POST"), timeout=3).read()
             reports = list((root / "services/backend/state").glob("recovery-*.json"))
             report = json.loads(reports[0].read_text()) if reports else {"totals": {}, "attempts": []}
@@ -130,7 +134,8 @@ def main():
                 row["trial"] = number
                 mine.append(row)
                 rows.append(row)
-                spend += row["cost_usd"] if isinstance(row["cost_usd"], (int, float)) else 0.0
+                # An unknown cost still spent money, so count a conservative estimate toward the cap.
+                spend += row["cost_usd"] if isinstance(row["cost_usd"], (int, float)) else UNKNOWN_COST_USD
                 print(f"{model} #{number}: {'OK ' if row['ok'] else 'FAIL'} {row['wall_s']}s ${row['cost_usd']} "
                       f"{row['selector'] or row['error']} (spend ${spend:.3f})", flush=True)
                 out.write_text(json.dumps({"rows": rows}, indent=2))
