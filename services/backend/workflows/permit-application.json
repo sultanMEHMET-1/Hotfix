@@ -1,0 +1,65 @@
+{
+  "goal": "Enter the permit identification number and applicant name, submit the application, and report the status shown.",
+  "steps": [
+    {
+      "field": "input_permit_id",
+      "action_type": "input",
+      "role": "textbox",
+      "label": "Permit identification number"
+    },
+    {
+      "field": "input_applicant_name",
+      "action_type": "input",
+      "role": "textbox",
+      "label": "Applicant name"
+    },
+    {
+      "field": "submit_button",
+      "action_type": "click",
+      "role": "button",
+      "label": "Submit Application"
+    }
+  ],
+  "params_schema": {
+    "type": "object",
+    "required": [
+      "permit_id",
+      "applicant_name"
+    ],
+    "additionalProperties": false,
+    "properties": {
+      "permit_id": {
+        "type": "string"
+      },
+      "applicant_name": {
+        "type": "string"
+      }
+    }
+  },
+  "output_schema": {
+    "type": "object",
+    "required": [
+      "status",
+      "inspector"
+    ],
+    "additionalProperties": false,
+    "properties": {
+      "status": {
+        "type": "string"
+      },
+      "inspector": {
+        "type": "string"
+      }
+    }
+  },
+  "canary": {
+    "params": {
+      "permit_id": "PERMIT-2026-0042",
+      "applicant_name": "Davis Municipal Works"
+    },
+    "expected_output": {
+      "status": "Approved",
+      "inspector": "Davis"
+    }
+  }
+}

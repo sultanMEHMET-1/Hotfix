@@ -47,6 +47,21 @@ invocation reported them, and never as 0 for unknown. Invalid input returns 422;
 configured workflows return 404. The response trace ID is useful in Sentry
 when a DSN is set. Traces and Sentry logs are enabled; local operation needs no DSN.
 
+## Real runner and portal (phase-1)
+
+After `services/runner/setup_venv.sh`, run the real Playwright runner and portal tests
+(free, mocked agent; add `MENDER_LIVE_TEST=1` for the paid Gemini heal):
+
+```sh
+MENDER_REAL_RUNNER=1 uv run --no-project --python 3.12 \
+  --with-requirements services/backend/requirements-live.txt \
+  python -B -m unittest services.backend.tests.test_real_runner -v
+```
+
+The runner does not yet accept the agreed CLI, so these tests go through a test-only
+shim. See HANDOFF.md for the gaps and the interim `MENDER_RUNNER_SCRIPT` bridge. The
+demo workflow definition is `workflows/permit-application.json`.
+
 ## Settings
 
 | Variable | Default |

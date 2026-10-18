@@ -8,6 +8,7 @@ import json
 import logging
 import math
 import os
+import re
 import platform
 from importlib.metadata import version as package_version
 from urllib.parse import urlsplit
@@ -40,8 +41,13 @@ class RecoveryResult:
     agent_duration_ms: float | None = None
 
 
+CLASS_ATTRIBUTE = re.compile(r"""\sclass\s*=\s*(?:"[^"]*"|'[^']*')""", re.IGNORECASE)
+
+
 def cooldown_key(failure, selectors):
-    evidence = json.dumps([failure.page_url, failure.dom_snippet, failure.error_message])
+    # Classes are never used for selectors, and legacy portals randomize them on every load.
+    dom = " ".join(CLASS_ATTRIBUTE.sub("", failure.dom_snippet).split())
+    evidence = json.dumps([failure.page_url, dom, failure.error_message])
     return (failure.workflow_id, failure.failed_step, failure.expected_selector,
             json.dumps(selectors, sort_keys=True), hashlib.sha256(evidence.encode()).hexdigest())
 

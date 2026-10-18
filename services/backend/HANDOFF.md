@@ -202,6 +202,48 @@ forcing every ordered-step position to zero made the two-field test fail.
 Both expected failures were detected, proving those acceptance checks can reject
 broken implementations. Mutation patches were removed before normal verification.
 
+## Integration with Person 1's real runner (phase-1, merged locally)
+
+`origin/phase-1` (portal + runner) is merged into this branch. Real-runner coverage
+is [tests/test_real_runner.py](tests/test_real_runner.py), opt in with
+`MENDER_REAL_RUNNER=1` after `services/runner/setup_venv.sh`. It starts its own portal
+on a free port, drives the real Playwright runner through a test-only CLI shim
+([fixtures/real_runner_shim.py](tests/fixtures/real_runner_shim.py)), and uses the
+backend-owned definition [workflows/permit-application.json](workflows/permit-application.json).
+
+Results: 3 free tests passed (fast path 399 ms through the shim including Chromium
+start; chaos heal with real replay and canary; cooldown hit using real failure
+artifacts). One paid test passed: real Gemini healed the real portal in 28.5 s
+(agent 21.7 s, 31,993 tokens, $0.0308 SDK estimate), selector
+`button[data-action="submit"]`, record committed 1->2, next request plain success.
+
+Found and fixed here: the portal randomizes the submit button class on every load and
+the runner's `dom_snippet` embeds it, so identical failures never matched the cooldown.
+`cooldown_key` now ignores `class` attributes (the backend never selects on classes).
+The cooldown test fails without this change.
+
+Gaps that need Person 1 or the contracts owner (not worked around in production code):
+
+1. **Runner CLI.** `execute.py` takes `--permit-id --applicant-name --selectors
+   --target-url --artifacts-dir`, not the agreed `--workflow --params --run-id`. Run
+   as-is, the backend gets a usage error and no artifact. Interim bridge: set
+   `MENDER_RUNNER_SCRIPT` to the shim plus `REAL_RUNNER_PYTHON`, `REAL_RUNNER_SCRIPT`,
+   `REAL_PORTAL_URL`, `REAL_PLAYWRIGHT_BROWSERS`. Real fix: runner adopts the CLI.
+2. **Artifact location.** Real: `runner/artifacts/failure_payload.json` and
+   `failure_latest.png`, overwritten each run. Agreed: `runs/<run_id>/failure.png`.
+3. **Target URL.** `contracts/selectors.json` says `https://portal.example.gov/...`;
+   the runner ignores it and defaults to `127.0.0.1:3000`. The backend rejects the
+   failure as `unexpected_page`. Contracts owner must set the real `target_url`.
+4. **`runner/reset_demo.py`** writes `selectors.json` with no lock and `version + 1`,
+   bypassing the backend lock protocol. Use `POST /api/v1/admin/reset` instead, or
+   only run it with the backend stopped.
+5. **Weak canary.** The portal returns Approved / Davis for any input, so the canary
+   cannot detect a wrong-record heal. Protection is replay: a wrong click leaves
+   `status_badge` missing, which is not an ordered step, so recovery aborts and rolls
+   back (`unmapped_step`).
+6. **Read step.** `status_badge` is read by the runner but is not an agent-healable
+   step. Chaos Mode only breaks `submit_button`, so this does not bite the demo.
+
 ## Remaining limits
 
 - The cooldown is in memory, per process, and a `dom_snippet` that embeds dynamic
@@ -219,9 +261,8 @@ broken implementations. Mutation patches were removed before normal verification
 - Subprocess stdout/stderr are buffered in memory. Output-volume limits and load
   testing are not implemented. Read-only result extraction and iframes remain
   unsupported; duplicate/dynamic labels may explicitly fail grounding.
-- Person 1 still needs to supply the real runner, artifacts, and approximately
-  two-second per-step selector timeouts. The real read-only workflow definition,
-  representative canary, and actual portal URL are still team dependencies.
+- The real runner now exists but does not speak the agreed CLI (see integration gaps
+  above). Its two-second step timeouts are in place.
 - Local fixture measurements do not prove real portal latency or the 400 ms
   fast-path target. Live Sentry delivery, its UI presentation, and portal Session
   Replay remain unverified; in-memory trace/grouping checks are narrower evidence.

@@ -11,6 +11,7 @@ import httpx
 
 from services.backend.config import BackendError
 from services.backend.runner import RunResult
+from services.backend.tests.test_m1 import failure
 from services.backend.tests.test_m2 import M2Harness
 
 
@@ -98,6 +99,16 @@ class M3Tests(M2Harness):
         for response in await asyncio.gather(*tasks):
             self.assert_failed(response.json())
         self.assertEqual(len(self.calls), 2)
+
+    def test_cooldown_key_ignores_randomized_classes_from_real_portal_artifacts(self):
+        from services.backend.recovery import cooldown_key
+        snippet = ('<form id="permit-form"> <input id="permit-id"> <div id="chaos-modal" role="dialog">'
+                   '<button class="legacy-action-%s" type="submit" data-action="submit">Submit Application</button></div></form>')
+        first, second, moved = (failure("submit_button").model_copy(update={"dom_snippet": snippet % token})
+                                for token in ("6rohw3mp", "k2x9qa1z", "x"))
+        self.assertEqual(cooldown_key(first, self.baseline), cooldown_key(second, self.baseline))
+        moved = moved.model_copy(update={"dom_snippet": moved.dom_snippet.replace("data-action", "data-other")})
+        self.assertNotEqual(cooldown_key(first, self.baseline), cooldown_key(moved, self.baseline))
 
     async def test_failed_restoration_blocks_execution_and_is_not_cached(self):
         self.app.state.diagnose = self.poison_submit()
