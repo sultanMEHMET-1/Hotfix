@@ -272,10 +272,17 @@ async def diagnose(settings, workflow, params, failure, *, deadline=None):
                 llm_timeout=min(30, settings.agent_timeout),
                 file_system_path=str(settings.backend / "state" / f"agent-{uuid4()}"),
             )
-            with sentry_sdk.start_span(op="gen_ai.invoke_agent", name="Browser Use recovery") as agent_span:
+            with sentry_sdk.start_span(op="gen_ai.invoke_agent", name="invoke_agent Browser Use") as agent_span:
                 agent_span.set_data("gen_ai.agent.name", "Browser Use")
                 agent_span.set_data("gen_ai.operation.name", "invoke_agent")
+                agent_span.set_data("gen_ai.request.model", model)
                 history = await agent.run(max_steps=6)
+                usage = history.usage if history else None
+                if usage and usage.entry_count:
+                    for key, attr in (("input", "total_prompt_tokens"), ("output", "total_completion_tokens")):
+                        value = getattr(usage, attr, None)
+                        if isinstance(value, int) and value >= 0:
+                            agent_span.set_data(f"gen_ai.usage.{key}_tokens", value)
             if history is None:
                 raise BackendError("agent_no_result", "Browser Use returned no history")
             usage = history.usage

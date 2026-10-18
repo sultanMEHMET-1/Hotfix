@@ -241,6 +241,33 @@ canary change). Latest run: fast path 366-375 ms over HTTP; heals 24.3-29.9 s, a
 time 20.2-25.8 s, SDK cost $0.028-$0.032; every record committed; versions monotonic.
 `reset_demo.py` was verified against the live backend and with the backend stopped.
 
+## Sentry delivery (verified live)
+
+Project `mender-backend` in org `tanish-misra` (us region). The DSN lives only in the
+git-ignored `services/backend/.env` as `SENTRY_DSN`. Three rehearsal loops against the
+full stack were queried back through the Sentry MCP tools:
+
+- **One trace per request.** A heal trace had 28 spans, 36 logs and 1 error:
+  `http.server` > `workflow.execute` > `healer.recovery` > `healer.diagnose` >
+  `gen_ai.invoke_agent` > four `gen_ai.chat` spans (auto-created by the SDK's
+  `GoogleGenAIIntegration`) > `http.client`, then `healer.patch` > two `runner.execute`
+  replays, plus the initial failed `runner.execute`. The recovery transaction shares the
+  request's trace ID.
+- **AI Agent Monitoring fields.** `invoke_agent Browser Use` spans carry
+  `gen_ai.agent.name`, `gen_ai.request.model` (gemini-3.8-flash) and
+  `gen_ai.usage.input_tokens` / `output_tokens` (about 29.6k in, 2.2k to 2.5k out). These
+  were added in this milestone; the span previously had only the agent name.
+- **Grouping.** Three identical runner failures became one issue (`MENDER-BACKEND-1`,
+  3 events) via the stable fingerprint, with `runner.failure` context, `old_selector`
+  and `workflow` tags.
+- **Logs.** Backend logs arrive as Sentry logs with trace IDs.
+- **No dropped events** for spans in the window. Ingestion lags by up to a couple of
+  minutes, so counts queried immediately after a run look low.
+
+Not yet checked: alert rules, a Sentry dashboard, and Session Replay on the portal
+(a Person 1 or 3 concern). Screenshots are not uploaded; only their local path is sent
+as event context.
+
 Remaining integration notes:
 
 - `status_badge` is read by the runner but is not an agent-healable step. Chaos Mode only
@@ -267,7 +294,6 @@ Remaining integration notes:
   unsupported; duplicate/dynamic labels may explicitly fail grounding.
 - Operator endpoints trust the socket peer address (loopback). Bind uvicorn to 127.0.0.1
   and do not put a proxy in front that forwards `/api/v1/admin/*` or `/api/v1/status`.
-- Live Sentry delivery is still unverified; no DSN was available in these runs.
 - Local fixture measurements do not prove real portal latency or the 400 ms
   fast-path target. Live Sentry delivery, its UI presentation, and portal Session
   Replay remain unverified; in-memory trace/grouping checks are narrower evidence.
