@@ -16,7 +16,7 @@ Primary: a presenter driving a live demo (pitch, investor meeting, conference ta
 
 ## Product Purpose
 
-Mender runs a browser workflow (a permit-application form) against cached CSS selectors. When a selector breaks, an AI agent (Browser Use) visually re-indexes the page, heals the selector, and finishes the run. The dashboard is the front-of-house for this demo: in one glance it must show "cheap and fast when cached" versus "slow and expensive, but self-healing, when the page changed."
+Mender runs a browser workflow (a permit-application form, an inventory price desk, or a read on Wikipedia, python.org or a practice site) against cached CSS selectors. The dashboard can also build a new read-only workflow from a sentence on those public sites. When a selector breaks, an AI agent (Browser Use) visually re-indexes the page, heals the selector, and finishes the run. The dashboard is the front-of-house for this demo: in one glance it must show "cheap and fast when cached" versus "slow and expensive, but self-healing, when the page changed."
 
 ## Positioning
 
@@ -24,9 +24,9 @@ The mechanism a competing "flaky test" or "self-healing selector" product would 
 
 ## Operating Context
 
-- Workflow under test: `permit-application` (a target browser form with semantic fields like `input_permit_id`, `submit_button`).
+- Workflows (six, plus any created from a sentence): `permit-application` (a target browser form with semantic fields like `input_permit_id`, `submit_button`), `record-update` (writes, local only), and four read-only public and practice-site workflows.
 - Backend contract is fixed and external: `contracts/api_types.ts` / `contracts/fixtures/*.json`. The dashboard must consume `WorkflowExecutionResponse` as given and must not invent fields.
-- A "Mocks ON/OFF" dev control and a Fast/Heal/Rollback mock scenario picker exist so the dashboard can be demoed without a live backend run.
+- A **Live** switch (outlined = sample data, filled = the real backend) and, while it is off, a Fast/Heal/Rollback scenario picker exist so the dashboard can be demoed without a live backend run.
 - Observability: a Sentry trace id (`trace_id`) is surfaced per run; "Sentry not configured" is a valid, expected state.
 
 ## Capabilities and Constraints

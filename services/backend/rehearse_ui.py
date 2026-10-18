@@ -1,7 +1,7 @@
 """Browser rehearsal of the real demo through the dashboard. Paid: one Gemini heal per loop.
 
 Run from the repository root with the project venv (it has Playwright), with the portal on
-:3000, the backend on :8000, and the dashboard running with mocks off on :5173:
+:3000, the backend on :8000, and the dashboard running with the Live switch on at :5173:
 
   PLAYWRIGHT_BROWSERS_PATH=.venv/playwright-browsers .venv/bin/python services/backend/rehearse_ui.py 3
 
@@ -39,9 +39,9 @@ def run_once(page, expect):
     page.wait_for_selector("button:has-text('Trigger workflow')", timeout=300_000)
     page.wait_for_timeout(400)
     elapsed = time.perf_counter() - started
-    body = page.locator("body").inner_text()
-    missing = [text for text in expect if text not in body]
-    if "Run failed" in body or "Recovery failed" in body:
+    body = page.locator("body").inner_text().lower()  # innerText applies CSS uppercasing, such as the COMMITTED stamp
+    missing = [text for text in expect if text.lower() not in body]
+    if "run failed" in body or "recovery failed" in body:
         missing.append("a failure label was shown")
     return elapsed, missing
 
@@ -58,8 +58,8 @@ def main():
         page.on("pageerror", lambda e: console_errors.append(str(e)))
         page.goto(DASHBOARD)
         page.wait_for_selector("text=Trigger workflow")
-        if page.get_by_role("button", name="Mocks off").count() == 0:
-            sys.exit("The dashboard is in mock mode; start it with VITE_USE_MOCKS=false")
+        if page.get_by_role("button", name="Live").get_attribute("aria-pressed") != "true":
+            sys.exit("The dashboard is showing sample data; start it with VITE_USE_MOCKS=false (the Live switch must be filled)")
         for loop in range(1, loops + 1):
             chaos(False)
             page.get_by_role("button", name="Reset selectors").click()

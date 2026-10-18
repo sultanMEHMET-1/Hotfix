@@ -49,7 +49,7 @@ example values must give what the agent reported, the same request twice must ag
 succeed and give a different answer; a selector containing an example value is rejected. Nothing is written until the
 user keeps the preview. Kept workflows are `contracts/workflows/custom-<site>-<words>-<4hex>.json` plus a map (map
 written first), ignored by git, with a first-version snapshot in `state/custom-baselines/` that Reset restores.
-Quotas: one creation at a time, 5 per hour, 20 kept. Failures are coded (`not_read_only`, `unsupported_action`,
+Quotas: one creation at a time, 5 attempts per hour (a failed attempt counts, a refusal made before any model call does not), 20 kept. Failures are coded (`not_read_only`, `unsupported_action`,
 `ambiguous_param`, `unresolved_element`, `replay_mismatch`, `replay_unstable`, `output_ignores_param`, `unsafe_action`,
 `author_timeout`) and nothing is registered.
 
@@ -181,9 +181,10 @@ Every test root is built by `tests/support.py::make_root`, which copies only the
 | --- | --- | --- |
 | Real DOM selector derivation and read probe, the sandbox site, read healing with a mocked agent | `MENDER_BROWSER_TEST=1` plus `-m unittest services.backend.tests.test_selectors services.backend.tests.test_writes`, live requirements, Chrome | free |
 | Real runner and portal, mocked agent | `MENDER_REAL_RUNNER=1`, `-m unittest services.backend.tests.test_real_runner`, after `services/runner/setup_venv.sh` | free |
+| Live checks of the four public workflows (the real Wikipedia, python.org and practice sites) | `MENDER_PUBLIC_TEST=1`, `-m unittest services.backend.tests.test_public_sites`, after `services/runner/setup_venv.sh` | free, needs the internet |
 | Gemini heals (fixture, real portal, sandbox step and read) | add `MENDER_LIVE_TEST=1` to the commands above, or `-m unittest services.backend.tests.test_live` | about $0.005 to $0.04 each |
 | API demo loops | `python -m services.backend.rehearse 5` (portal on :3000, backend on :8000) | about $0.01 to $0.03 per loop |
-| Dashboard demo loops in a real browser | `PLAYWRIGHT_BROWSERS_PATH=.venv/playwright-browsers .venv/bin/python services/backend/rehearse_ui.py 3` (dashboard on :5173 with mocks off) | about $0.01 to $0.03 per loop |
+| Dashboard demo loops in a real browser | `PLAYWRIGHT_BROWSERS_PATH=.venv/playwright-browsers .venv/bin/python services/backend/rehearse_ui.py 3` (dashboard on :5173 with the Live switch on) | about $0.01 to $0.03 per loop |
 | Model comparison | `MENDER_REAL_RUNNER=1 ... -m services.backend.bench_models --models a,b --trials 5` | see below |
 
 The live commands use `requirements-live.txt` (for example `MENDER_LIVE_TEST=1 uv run --no-project --python 3.12 --with-requirements services/backend/requirements-live.txt python -B -m unittest services.backend.tests.test_live -v`). On macOS the tests discover Google Chrome; elsewhere set `MENDER_BROWSER_EXECUTABLE`. Test selectors, portals, screenshots and backups live in temporary directories; product backups are `state/baseline-<run_id>.json`. The recorded history fixture is a projection of a real Chrome and Browser Use 0.13.11 run driven by scripted model responses. It establishes SDK history shape, not model reasoning.

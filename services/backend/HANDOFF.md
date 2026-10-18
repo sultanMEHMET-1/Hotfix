@@ -2,8 +2,9 @@
 
 State of `services/backend` for a teammate or agent picking it up. The run guide is
 [README.md](README.md), the rules for agents are [AGENTS.md](AGENTS.md), and the project brief is
-[CLAUDE.md](CLAUDE.md). M1 to M3 are merged into `main` (PR #1), and the generic runner, per-workflow
-recovery and related work are merged in PR #2. The inventory demo upgrade is on `codex/records-site-demo`.
+[CLAUDE.md](CLAUDE.md). M1 to M3, the generic runner, per-workflow recovery, the review fixes, the redesigned dashboard
+and the inventory desk are merged into `main` (PRs #1 to #5). The public-site workflows (PR #6) and creating workflows
+from a sentence (PR #7, stacked on #6) are open pull requests at the time of writing.
 
 ## Status
 
@@ -11,16 +12,18 @@ recovery and related work are merged in PR #2. The inventory demo upgrade is on 
 | --- | --- |
 | M1 single-field recovery, M2 transactional multi-field recovery, M3 failure cooldown and finalized `heal_records` | Shipped, tested, merged |
 | Real runner and portal (Person 1) | Merged; speaks the agreed CLI; verified end to end |
-| Dashboard (Person 3) | Merged; verified in a real browser against the real backend |
-| Generic runner and per-workflow maps | `contracts/workflows/<id>.json` + `contracts/selectors/<id>.json`; the runner navigates to the map's `target_url`; four workflows on one backend (`permit-application`, `record-update`, and the public `wikipedia-article`, `python-latest-release`) |
+| Dashboard (Person 3) | Merged; redesigned (printed ledger, sticky glass header, scroll reveals, accumulating corrections); verified in a real browser against the real backend |
+| Generic runner and per-workflow maps | `contracts/workflows/<id>.json` + `contracts/selectors/<id>.json`; the runner navigates to the map's `target_url`; six workflows on one backend (four of them read-only) (`permit-application`, `record-update`, and the public `wikipedia-article`, `python-latest-release`) |
 | Read healing | A broken read selector is repaired from the values the agent saw, verified by replay and the canary |
 | Crash recovery, pruning | `state/inflight-<wf>.json` marker restored at startup; `runs/` keeps the newest 50 |
-| Write workflows (local sites only) | Shipped with a guard, a sandbox site, and a login-wall fail-fast |
+| Write workflows (local sites only) | Shipped with a guard, the inventory desk (12 items, filters, audit, supplier note, click-to-break Chaos), and a login-wall fail-fast |
+| Public-site workflows | `wikipedia-article`, `python-latest-release`, and the practice sites `books-travel-first-book` and `quotes-love-first-quote` (PR #6 and #7) |
+| Workflows created from a sentence | Wikipedia, python.org, Books to Scrape, Quotes to Scrape; read-only; draft, keep, delete (PR #7) |
 | Sentry | Tracing, Logs, AI agent monitoring, Profiling (backend) and Tracing + Session Replay (dashboard, project `mender-dashboard`), verified live; failed-recovery alert created |
 | Model comparison | 8 Gemini models, 90 paid trials; default is now `gemini-3.5-flash-lite` (see below) |
 | Cooldown field `cooldown_remaining_s` | In the contract, backend and dashboard (countdown) |
 
-Test status at the records-site demo run: backend 146 tests (33 opt-in skipped), browser selector/write suites 30 (2 paid tests skipped), real-runner suite 4 (1 paid test skipped), runner 12, `ruff` clean. Dashboard was unchanged; its previous result was 55 tests.
+Test status at the last run: backend 198 tests (with the browser, real-runner and public-site flags on, only the 5 paid Gemini tests skip; the default run skips 51), runner 12, dashboard 81, `ruff` clean.
 
 The endpoint builds the shared response model, dumps it once, and validates that same JSON with both
 the Pydantic model and the JSON Schema before returning it. All four contract fields are enabled
@@ -372,6 +375,8 @@ in 15 s for $0.0088, kept, ran in 1.3 s, and was deleted with its files. Total s
 First live user attempt with 'Look up Max Verstappen on Wikipedia and tell me the article heading' failed: Wikipedia showed a pop-up, the agent clicked 'Maybe later' and 'Close' before typing, those clicks were recorded as steps, and the replay failed without the pop-up. Fixed by dropping leading dismiss clicks (maybe later, close, dismiss, accept...) when the workflow has an input step, and by one automatic retry for failures where the agent merely took a different path (the retry never applies to safety refusals or timeouts; a failed attempt can cost a second cent). Backend logs now record the failure code. A pop-up that appears only during a later run is still not handled by the runner.
 
 Wikipedia and python.org proved brittle for demos (a pop-up, a search ranking that changes: 'PEP 8' on python.org returned 'Python 3.6.9' as its first result), so two practice sites built for scraping were added, with a built-in workflow each (`books-travel-first-book`, `quotes-love-first-quote`), and the dashboard suggests only sentences that were run for real. Batch of 10 candidate sentences: 10 of 10 built working workflows (9 to 17 s, $0.004 to $0.011), spend $0.059; the PEP 8 search was dropped from the suggestions because its answer is meaningless. Click-only workflows on the practice sites build in about 10 s for about 4 tenths of a cent.
+
+A code review of this work (11 findings) led to these fixes, each with a test that fails without it: failed creations count toward the hourly quota (refusals made before any model call do not); a preview survives a failed keep so the user does not pay twice; delete waits for in-flight runs (the shared selector lock) instead of pulling files out from under one; a broken created workflow is skipped at startup and can no longer put the whole backend into a configuration error; reported page text cannot be rewritten by the probe's placeholder substitution; the dashboard panel starts fresh per site and cannot save or delete mid-run; refusal messages name the word or the sites. Two findings were left alone on purpose: collapsing two identical consecutive clicks (a replay mismatch catches the rare legitimate case before anything is kept) and the explicit `{"break": ...}` chaos call ignoring the cap (documented, and tests and benchmarks need it).
 
 Known limits: only input and click steps (an agent that presses Enter, picks a dropdown option or navigates by URL is
 rejected as `unsupported_action`; the prompt tells it not to, and 6 of 6 complied); some derived selectors are
