@@ -24,6 +24,10 @@ Changing any file here requires a team agreement. No developer may edit files ou
 - `version` (integer)
 - `fields` (object): semantic names such as `input_permit_id`, `submit_button`, and `status_badge` mapped to CSS selectors
 
+`target_url` is the real address of the site the workflow runs on. The backend only repairs
+failures reported from that origin (anything else is rejected as `unexpected_page`), and the
+runner should read it from here instead of keeping its own copy.
+
 `fields` is a lookup map, not an execution order. Ordered steps and the top-level
 `goal` belong to backend-owned workflow definitions for now. The selector map
 still describes one workflow. Stored selectors must be CSS, even when Browser
@@ -74,6 +78,10 @@ The dashboard can display the final response without another request:
 - `trace_id` identifies the current request's trace, not a Sentry event ID.
   It is still populated for local execution when no trace is exported.
 
+Failures are HTTP 200 with `status="failed"`, never an error status. When a recovery
+was not attempted or produced no candidates, `heal_records` is omitted (equivalent to `[]`),
+and it is also omitted when restoring the baseline failed (`error.code` `rollback_failed`).
+
 Each `HealRecord` contains:
 
 - `field`: an existing semantic selector-map field.
@@ -110,6 +118,16 @@ double-count shared work. If the SDK cannot expose a reliable value, omit it.
 Joined requests may include the shared records but have their own `trace_id`,
 `execution_time_ms`, and workflow output from their own replay.
 
+## Failure cooldown (behavior consumers see)
+
+After a failed recovery the backend remembers that exact failure for 15 seconds and answers a
+repeat of it from memory, without running the agent again. The repeat keeps the original
+`error` and `heal_records`, has its own `trace_id` and `execution_time_ms`, and carries no
+`agent_cost_usd` or `agent_duration_ms`. A different failure (another step, selector, or page)
+starts a fresh recovery. The response does not currently say a result was cached; a proposal
+to add `cooldown_remaining_s` is in `services/backend/proposals/cooldown-remaining-field.md`
+and is not part of this contract until all three owners agree.
+
 ## Contract checks
 
 Run from the repository root:
@@ -127,7 +145,7 @@ generated from `WorkflowExecutionResponse.model_json_schema()` with the
 
 ## Rules of engagement
 
-### Person 1 — `/services/portal` and `/services/runner`
+### Person 1 - `/services/portal` and `/services/runner`
 
 - Reads `contracts/selectors.json` (validated by `selectors.schema.json`) as the only source of element targets.
 - On timeout or failure, writes `failure_payload.json` that validates against `failure_payload.schema.json`.
@@ -135,7 +153,7 @@ generated from `WorkflowExecutionResponse.model_json_schema()` with the
   missing selector does not delay recovery for thirty seconds.
 - Does not call the vision healer and does not rewrite selectors.
 
-### Person 2 — `/services/backend`
+### Person 2 - `/services/backend`
 
 - Consumes `failure_payload.json`.
 - Runs the Browser Use healer with Gemini and verifies candidates through the
@@ -144,7 +162,7 @@ generated from `WorkflowExecutionResponse.model_json_schema()` with the
   advances `version`.
 - Returns `WorkflowExecutionResponse` as defined in `api_types.py`.
 
-### Person 3 — `/services/dashboard`
+### Person 3 - `/services/dashboard`
 
 - Consumes `WorkflowExecutionResponse` using `contracts/api_types.ts`.
 - Does not parse runner artifacts or selector files directly.
