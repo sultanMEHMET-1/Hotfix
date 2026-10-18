@@ -27,15 +27,16 @@ def atomic_json(path: Path, value: dict):
 
 
 class SelectorStore:
-    def __init__(self, settings: Settings):
-        self.path = settings.selectors
+    def __init__(self, settings: Settings, workflow_id: str):
+        self.workflow_id = workflow_id
+        self.path = settings.selectors_for(workflow_id)
         self.state = settings.backend / "state"
         self.check = validator(read_json(settings.root / "contracts/selectors.schema.json"))
 
     @asynccontextmanager
     async def lock(self, exclusive=False):
         self.state.mkdir(parents=True, exist_ok=True)
-        with (self.state / "selectors.lock").open("a") as stream:
+        with (self.state / f"{self.workflow_id}.lock").open("a") as stream:
             operation = fcntl.LOCK_EX if exclusive else fcntl.LOCK_SH
             try:
                 while True:

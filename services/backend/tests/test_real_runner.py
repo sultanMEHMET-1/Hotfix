@@ -7,7 +7,6 @@ Mocked-agent tests are free; the Gemini test also needs MENDER_LIVE_TEST=1.
 import json
 import os
 from pathlib import Path
-import shutil
 import socket
 import subprocess
 import tempfile
@@ -22,6 +21,7 @@ from contracts.api_types import HealEvidence
 from services.backend.config import Settings
 from services.backend.healer import Candidate
 from services.backend.main import create_app
+from services.backend.tests.support import make_root
 
 ROOT = Path(__file__).resolve().parents[3]
 FIXTURES = Path(__file__).parent / "fixtures"
@@ -30,7 +30,7 @@ SUBMIT = '#submit-btn'
 HEALED = 'button[data-action="submit"]'
 PARAMS = {"permit_id": "PERMIT-2026-0042", "applicant_name": "Davis Municipal Works"}
 
-DEFINITION = json.loads((ROOT / "services/backend/workflows/permit-application.json").read_text())
+DEFINITION = json.loads((ROOT / "contracts/workflows/permit-application.json").read_text())
 
 
 def free_port():
@@ -58,14 +58,10 @@ class RealRunnerTests(unittest.TestCase):
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
         self.root = Path(self.temp.name)
-        shutil.copytree(ROOT / "contracts", self.root / "contracts")
-        (self.root / "services/backend/workflows").mkdir(parents=True)
-        (self.root / "services/backend/workflows/permit-application.json").write_text(json.dumps(DEFINITION))
-        # The checked-in map points at portal.example.gov; the backend rejects failures from another origin.
-        self.baseline = json.loads((ROOT / "contracts/selectors.json").read_text())
+        # The test portal listens on a free port, so point the map at it (the backend rejects other origins).
+        self.baseline = json.loads((ROOT / "contracts/selectors/permit-application.json").read_text())
         self.baseline["target_url"] = f"{self.portal}/permits/apply"
-        self.path = self.root / "contracts/selectors.json"
-        self.path.write_text(json.dumps(self.baseline))
+        self.path = make_root(self.root, "permit-application", DEFINITION, self.baseline)
         env = patch.dict(os.environ, {
             "SENTRY_DSN": "", "REAL_RUNNER_PYTHON": str(VENV_PYTHON), "REAL_PORTAL_URL": self.portal,
             "REAL_RUNNER_SCRIPT": str(ROOT / "services/runner/execute.py"),

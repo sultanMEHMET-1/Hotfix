@@ -119,7 +119,7 @@ class Recovery:
         clock = asyncio.get_running_loop().time
         hard_deadline = started + self.settings.recovery_timeout
         deadline = hard_deadline - self.settings.cleanup_reserve
-        store, runner = self.app.state.store, self.app.state.runner
+        store, runner = self.app.state.stores[workflow_id], self.app.state.runner
         outcome = RecoveryResult()
         metrics = []
         drafts = []

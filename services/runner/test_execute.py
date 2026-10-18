@@ -33,7 +33,7 @@ class RunnerContractTests(unittest.TestCase):
         self.assertEqual(PER_STEP_TIMEOUT_MS, 2_000)
 
     def test_selector_map_matches_shared_contract(self):
-        selector_map = load_selector_map(REPOSITORY_ROOT / "contracts" / "selectors.json")
+        selector_map = load_selector_map(REPOSITORY_ROOT / "contracts" / "selectors" / "permit-application.json")
         self.assertEqual(selector_map["fields"]["submit_button"], "#submit-btn")
 
     def test_dom_trim_keeps_changed_submit_button_context(self):
@@ -42,7 +42,7 @@ class RunnerContractTests(unittest.TestCase):
         self.assertLessEqual(len(snippet), 1500)
 
     def test_failure_artifacts_match_required_fields(self):
-        selector_map = load_selector_map(REPOSITORY_ROOT / "contracts" / "selectors.json")
+        selector_map = load_selector_map(REPOSITORY_ROOT / "contracts" / "selectors" / "permit-application.json")
         failure = WorkflowFailure("submit_button", "#submit-btn", TimeoutError("missing selector"))
         with tempfile.TemporaryDirectory() as temporary_directory:
             payload_path = write_failure_artifacts(FakePage(), selector_map, failure, Path(temporary_directory))

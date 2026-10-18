@@ -1,0 +1,78 @@
+{
+  "goal": "Enter the record ID and the new value, save the record exactly once, and report the saved value.",
+  "steps": [
+    {
+      "field": "input_record_id",
+      "action_type": "input",
+      "role": "textbox",
+      "label": "Record ID",
+      "param": "record_id"
+    },
+    {
+      "field": "input_value",
+      "action_type": "input",
+      "role": "textbox",
+      "label": "New value",
+      "param": "value"
+    },
+    {
+      "field": "save_button",
+      "action_type": "click",
+      "role": "button",
+      "label": "Save record"
+    }
+  ],
+  "outputs": {
+    "record_id": {
+      "field": "saved_value",
+      "read": "attr:data-record"
+    },
+    "value": {
+      "field": "saved_value",
+      "read": "attr:data-value"
+    }
+  },
+  "params_schema": {
+    "type": "object",
+    "required": [
+      "record_id",
+      "value"
+    ],
+    "additionalProperties": false,
+    "properties": {
+      "record_id": {
+        "type": "string"
+      },
+      "value": {
+        "type": "string"
+      }
+    }
+  },
+  "output_schema": {
+    "type": "object",
+    "required": [
+      "record_id",
+      "value"
+    ],
+    "additionalProperties": false,
+    "properties": {
+      "record_id": {
+        "type": "string"
+      },
+      "value": {
+        "type": "string"
+      }
+    }
+  },
+  "canary": {
+    "params": {
+      "record_id": "canary-record",
+      "value": "canary-value"
+    },
+    "expected_output": {
+      "record_id": "canary-record",
+      "value": "canary-value"
+    }
+  },
+  "mutates": true
+}

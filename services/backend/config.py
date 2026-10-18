@@ -8,7 +8,8 @@ import sys
 from urllib.parse import urlsplit
 
 import jsonschema
-from pydantic import BaseModel, ConfigDict, Field
+
+from contracts.api_types import WorkflowDefinition
 
 
 class BackendError(Exception):
@@ -30,30 +31,8 @@ def validator(schema: dict):
     return cls(schema, format_checker=jsonschema.FormatChecker())
 
 
-class Step(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-    field: str = Field(pattern=r"^[a-z][a-z0-9_]*$")
-    action_type: str = Field(min_length=1)
-    role: str | None = None
-    label: str | None = None
-
-
-class Canary(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-    params: dict
-    expected_output: dict
-    ignore_paths: list[str] = Field(default_factory=list)
-
-
-class Workflow(BaseModel):
-    model_config = ConfigDict(extra="forbid", arbitrary_types_allowed=True)
-    goal: str = Field(min_length=1)
-    steps: list[Step] = Field(min_length=1)
-    params_schema: dict
-    output_schema: dict
-    canary: Canary | None = None
-    # A workflow that changes data on the site. Runs only against local or allowlisted hosts.
-    mutates: bool = False
+# The definition model is shared with every other service through the contracts package.
+Workflow = WorkflowDefinition
 
 
 LOCAL_HOSTS = {"127.0.0.1", "localhost", "::1"}
@@ -73,7 +52,6 @@ def write_allowed(url: str, extra_hosts=()):
 @dataclass
 class Settings:
     root: Path
-    workflows_dir: Path | None = None
     runner_script: Path | None = None
     runner_python: str = sys.executable
     runner_timeout: float = 45
@@ -93,8 +71,6 @@ class Settings:
         root = Path(__file__).resolve().parents[2]
         return cls(
             root=root,
-            workflows_dir=Path(os.environ["MENDER_WORKFLOWS_DIR"]).resolve()
-            if os.getenv("MENDER_WORKFLOWS_DIR") else None,
             runner_script=Path(os.environ["MENDER_RUNNER_SCRIPT"]).resolve()
             if os.getenv("MENDER_RUNNER_SCRIPT") else None,
             runner_python=os.getenv("MENDER_RUNNER_PYTHON") or default_runner_python(root),
@@ -112,8 +88,12 @@ class Settings:
         return self.root / "services/backend"
 
     @property
-    def selectors(self):
-        return self.root / "contracts/selectors.json"
+    def workflows_dir(self):
+        """The only place workflow definitions live, so the backend and the runner always agree."""
+        return self.root / "contracts/workflows"
+
+    def selectors_for(self, workflow_id: str):
+        return self.root / "contracts/selectors" / f"{workflow_id}.json"
 
     @property
     def script(self):
@@ -121,19 +101,14 @@ class Settings:
 
 
 def load_workflows(settings: Settings):
-    shared = settings.root / "contracts/workflows"
-    folder = settings.workflows_dir or (shared if shared.is_dir() else settings.backend / "workflows")
     workflows = {}
-    for path in sorted(folder.glob("*.json")):
+    for path in sorted(settings.workflows_dir.glob("*.json")):
         workflow = Workflow.model_validate(read_json(path))
-        if len({step.field for step in workflow.steps}) != len(workflow.steps):
-            raise ValueError(f"Duplicate ordered workflow fields in {path.name}")
         params_validator = validator(workflow.params_schema)
         output_validator = validator(workflow.output_schema)
-        if workflow.canary:
-            params_validator.validate(workflow.canary.params)
-            output_validator.validate(workflow.canary.expected_output)
-            masked_output(workflow.canary.expected_output, workflow.canary.ignore_paths)
+        params_validator.validate(workflow.canary.params)
+        output_validator.validate(workflow.canary.expected_output)
+        masked_output(workflow.canary.expected_output, workflow.canary.ignore_paths)
         workflows[path.stem] = (workflow, params_validator, output_validator)
     return workflows
 

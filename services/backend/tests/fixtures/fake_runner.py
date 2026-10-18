@@ -24,7 +24,7 @@ if case == "hang":
 if case == "junk":
     print("not JSON")
     sys.exit(0)
-selectors = json.loads(Path("contracts/selectors.json").read_text())
+selectors = json.loads(Path(f"contracts/selectors/{args.workflow}.json").read_text())
 field = "input_reference"
 navigation_failure = case == "navigation"
 input_selector = selectors["fields"][field]

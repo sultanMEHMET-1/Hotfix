@@ -12,7 +12,7 @@ from pydantic import BaseModel, ConfigDict, Field
 import sentry_sdk
 from sentry_sdk.integrations.logging import LoggingIntegration
 
-from contracts.api_types import RecoveryError, WorkflowExecutionResponse
+from contracts.api_types import RecoveryError, WorkflowExecutionResponse, WorkflowSummary
 from .config import BackendError, Settings, load_workflows, read_json, validator, write_allowed
 from .recovery import Recovery
 from .reset import restore_original
@@ -45,6 +45,10 @@ def capture_failure(workflow_id, result):
     })
 
 
+def referenced_fields(definition):
+    return {step.field for step in definition.steps} | {output.field for output in definition.outputs.values()}
+
+
 def create_app(settings=None):
     settings = settings or Settings.from_env()
 
@@ -68,13 +72,20 @@ def create_app(settings=None):
             if settings.cleanup_reserve >= settings.recovery_timeout:
                 raise ValueError("Cleanup reserve must be shorter than recovery timeout")
             app.state.workflows = load_workflows(settings)
-            app.state.store = SelectorStore(settings)
-            selector_map = app.state.store.read()
-            demo_id = settings.demo_workflow or selector_map["workflow_id"]
-            if settings.demo_workflow and demo_id not in app.state.workflows:
-                raise ValueError("Configured demo workflow definition is missing")
-            if demo_id in app.state.workflows and app.state.workflows[demo_id][0].canary is None:
-                raise ValueError("The demo workflow requires a canary")
+            app.state.stores = {}
+            for workflow_id, (definition, _, _) in app.state.workflows.items():
+                store = SelectorStore(settings, workflow_id)
+                selector_map = store.read()
+                if selector_map["workflow_id"] != workflow_id:
+                    raise ValueError("A selector map belongs to another workflow")
+                if not referenced_fields(definition) <= set(selector_map["fields"]):
+                    raise ValueError("A workflow references unknown selector fields")
+                app.state.stores[workflow_id] = store
+            if settings.demo_workflow and settings.demo_workflow not in app.state.workflows:
+                raise ValueError("Configured default workflow definition is missing")
+            names = sorted(app.state.workflows)
+            app.state.default_workflow = settings.demo_workflow or (
+                "permit-application" if "permit-application" in names else (names[0] if names else None))
             app.state.runner = Runner(settings)
             app.state.response_validator = validator(read_json(
                 settings.root / "contracts/workflow_execution_response.schema.json"
@@ -106,32 +117,58 @@ def create_app(settings=None):
                 "cooldown": {w: round(entry["expires"] - now, 3) for w, entry in recovery.cooldown.items()
                              if entry["expires"] > now}}
 
+    @app.get("/api/v1/workflows", response_model=list[WorkflowSummary])
+    async def workflows():
+        """What this backend can run, so a UI can offer it. The default workflow is listed first."""
+        if app.state.configuration_error:
+            raise HTTPException(503, app.state.configuration_error)
+        default = app.state.default_workflow
+        order = sorted(app.state.workflows, key=lambda name: (name != default, name))
+        return [WorkflowSummary(id=name, goal=app.state.workflows[name][0].goal,
+                                mutates=app.state.workflows[name][0].mutates, default=name == default,
+                                params_schema=app.state.workflows[name][0].params_schema,
+                                example_params=app.state.workflows[name][0].canary.params) for name in order]
+
     @app.post("/api/v1/admin/reset")
     async def reset(request: Request):
-        """Rehearsal reset: restore the committed selectors and forget the failure cooldown."""
+        """Rehearsal reset: restore committed selectors (one workflow or all) and forget its failure cooldown."""
         require_local(request)
-        if app.state.configuration_error and not hasattr(app.state, "store"):
+        if app.state.configuration_error and not getattr(app.state, "stores", None):
             raise HTTPException(503, app.state.configuration_error)
+        try:
+            body = await request.json()
+        except ValueError:
+            body = {}
+        target = body.get("workflow") if isinstance(body, dict) else None
+        if target is not None and target not in app.state.stores:
+            raise HTTPException(404, "Unknown workflow")
+        names = [target] if target else sorted(app.state.stores)
         recovery = app.state.recovery
-        if any(recovery.active(workflow) for workflow in list(recovery.tasks)):
+        if any(recovery.active(name) for name in names):
             raise HTTPException(409, "A recovery is running; retry when it finishes")
-        try:
-            async with asyncio.timeout(settings.lock_timeout):
-                lock = app.state.store.lock(exclusive=True)
-                await lock.__aenter__()
-        except TimeoutError:
-            raise HTTPException(409, "Selector map busy")
-        try:
-            version = await restore_original(settings, app.state.store)
-        except Exception:
-            log.exception("Reset failed")
-            sentry_sdk.capture_exception()
-            raise HTTPException(500, "Reset failed; see backend logs")
-        finally:
-            await lock.__aexit__(None, None, None)
-        recovery.cooldown.clear()
-        log.info("Original selectors restored as version %s; cooldown cleared", version, extra={"phase": "ROLLBACK"})
-        return {"version": version, "blocked": app.state.configuration_error}
+        versions = {}
+        # One workflow at a time, never nested, so two resets cannot deadlock against each other.
+        for name in names:
+            store = app.state.stores[name]
+            lock = store.lock(exclusive=True)
+            try:
+                async with asyncio.timeout(settings.lock_timeout):
+                    await lock.__aenter__()
+            except TimeoutError:
+                raise HTTPException(409, "Selector map busy")
+            try:
+                versions[name] = await restore_original(settings, store)
+            except Exception:
+                log.exception("Reset failed")
+                sentry_sdk.capture_exception()
+                raise HTTPException(500, "Reset failed; see backend logs")
+            finally:
+                await lock.__aexit__(None, None, None)
+            recovery.cooldown.pop(name, None)
+        log.info("Original selectors restored (%s); cooldown cleared", versions, extra={"phase": "ROLLBACK"})
+        default = app.state.default_workflow
+        return {"version": versions.get(default) or next(iter(versions.values())), "versions": versions,
+                "blocked": app.state.configuration_error}
 
     @app.post("/api/v1/run-workflow", response_model=WorkflowExecutionResponse)
     async def run_workflow(request: WorkflowRequest):
@@ -147,7 +184,7 @@ def create_app(settings=None):
             raise HTTPException(422, "Parameters do not match the workflow schema")
         if not settings.script.is_file():
             raise HTTPException(503, "The runner script is unavailable")
-        store, runner = app.state.store, app.state.runner
+        store, runner = app.state.stores[request.workflow], app.state.runner
         with sentry_sdk.isolation_scope():
             sentry_sdk.set_tag("workflow", request.workflow)
             sentry_sdk.set_tag("mode", "fast")
@@ -184,7 +221,7 @@ def create_app(settings=None):
                                 selectors = store.read()
                                 if selectors["workflow_id"] != request.workflow:
                                     raise HTTPException(503, "The selector map belongs to another workflow")
-                                if not all(step.field in selectors["fields"] for step in workflow.steps):
+                                if not referenced_fields(workflow) <= set(selectors["fields"]):
                                     raise HTTPException(503, "Workflow steps reference unknown selector fields")
                                 if workflow.mutates and not write_allowed(selectors["target_url"], settings.write_hosts):
                                     raise BackendError("write_not_allowed", "This workflow changes data, so it only runs against local or allowlisted sites")

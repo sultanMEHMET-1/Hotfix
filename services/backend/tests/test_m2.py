@@ -5,7 +5,6 @@ import copy
 import json
 import os
 from pathlib import Path
-import shutil
 import tempfile
 import unittest
 from unittest.mock import patch
@@ -15,7 +14,8 @@ import httpx
 from services.backend.config import BackendError, Settings
 from services.backend.healer import Candidate
 from services.backend.main import create_app
-from services.backend.tests.test_m1 import CORRECT, FIXTURES, ROOT, failure, workflow_definition
+from services.backend.tests.support import make_root
+from services.backend.tests.test_m1 import CORRECT, FIXTURES, failure, workflow_definition
 from services.backend.healer import extract_evidence
 from services.backend.config import Workflow
 
@@ -28,15 +28,10 @@ class M2Harness(unittest.IsolatedAsyncioTestCase):
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
         self.root = Path(self.temp.name)
-        shutil.copytree(ROOT / "contracts", self.root / "contracts")
-        folder = self.root / "services/backend/workflows"
-        folder.mkdir(parents=True)
         self.definition = workflow_definition()
-        (folder / "sample-lookup.json").write_text(json.dumps(self.definition))
         self.baseline = {"workflow_id": "sample-lookup", "version": 1, "target_url": "http://portal.test/lookup",
                          "fields": {"submit_button": "#broken", "input_reference": "#broken-input"}}
-        self.path = self.root / "contracts/selectors.json"
-        self.path.write_text(json.dumps(self.baseline))
+        self.path = make_root(self.root, "sample-lookup", self.definition, self.baseline)
         self.settings = Settings(root=self.root, runner_script=FIXTURES / "fake_runner.py", runner_timeout=1,
                                  recovery_timeout=3, cleanup_reserve=0.5, lock_timeout=0.1)
         self.env = patch.dict(os.environ, {"SENTRY_DSN": ""})
@@ -86,7 +81,7 @@ class M2Harness(unittest.IsolatedAsyncioTestCase):
 class M2Tests(M2Harness):
     async def test_two_fields_repair_in_order_without_reentrant_deadlock(self):
         acquisitions = []
-        original = self.app.state.store.lock
+        original = self.app.state.stores["sample-lookup"].lock
         from contextlib import asynccontextmanager
 
         @asynccontextmanager
@@ -94,7 +89,7 @@ class M2Tests(M2Harness):
             acquisitions.append(exclusive)
             async with original(exclusive=exclusive):
                 yield
-        self.app.state.store.lock = checked_lock
+        self.app.state.stores["sample-lookup"].lock = checked_lock
         payload = (await asyncio.wait_for(self.request(), 2)).json()
         self.assertEqual(payload["status"], "healed")
         self.assertEqual(self.calls, ["input_reference", "submit_button"])
@@ -243,7 +238,7 @@ class M2Tests(M2Harness):
         output_validator = self.app.state.workflows["sample-lookup"][2]
         result = await execute("sample-lookup", {"record_id": "owner"}, output_validator)
         workflow = self.app.state.workflows["sample-lookup"][0]
-        async with self.app.state.store.lock(exclusive=True):
+        async with self.app.state.stores["sample-lookup"].lock(exclusive=True):
             task = self.app.state.recovery.start("sample-lookup", workflow, {"record_id": "owner"}, output_validator,
                                                  self.baseline, result)
             outcome = await asyncio.wait_for(asyncio.shield(task), 0.5)
@@ -338,7 +333,7 @@ class M2Tests(M2Harness):
         self.assertEqual(self.report()["error_code"], "unresolved_element")
 
     async def test_fast_path_lock_wait_is_bounded_without_starting_agent(self):
-        async with self.app.state.store.lock(exclusive=True):
+        async with self.app.state.stores["sample-lookup"].lock(exclusive=True):
             self.assert_failed((await asyncio.wait_for(self.request(), 0.5)).json())
         self.assertEqual(self.calls, [])
         self.assertEqual(self.selectors(), self.baseline)
@@ -346,7 +341,7 @@ class M2Tests(M2Harness):
     async def test_missing_demo_canary_rejected_at_startup(self):
         definition = copy.deepcopy(self.definition)
         definition.pop("canary")
-        (self.settings.backend / "workflows/sample-lookup.json").write_text(json.dumps(definition))
+        (self.root / "contracts/workflows/sample-lookup.json").write_text(json.dumps(definition))
         app = create_app(self.settings)
         async with app.router.lifespan_context(app):
             async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://backend.test") as client:

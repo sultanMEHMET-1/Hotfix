@@ -83,3 +83,40 @@ export interface WorkflowExecutionResponse {
   /** Only on a failed response served from the failure cooldown: seconds until a retry starts a fresh recovery. */
   cooldown_remaining_s?: number | null;
 }
+
+/** One ordered action of a workflow. Input steps fill the named parameter. */
+export interface WorkflowStep {
+  field: string;
+  action_type: "input" | "click";
+  role?: string | null;
+  label?: string | null;
+  param?: string | null;
+}
+
+/** How one output value is read after the actions: the element's text, or one attribute. */
+export interface WorkflowOutput {
+  field: string;
+  read: string;
+}
+
+/** A workflow any runner can execute (contracts/workflows/<id>.json). */
+export interface WorkflowDefinition {
+  goal: string;
+  steps: WorkflowStep[];
+  outputs?: Record<string, WorkflowOutput>;
+  params_schema: Record<string, unknown>;
+  output_schema: Record<string, unknown>;
+  canary: { params: Record<string, unknown>; expected_output: Record<string, unknown>; ignore_paths?: string[] };
+  mutates?: boolean;
+}
+
+/** One entry of GET /api/v1/workflows. */
+export interface WorkflowSummary {
+  id: string;
+  goal: string;
+  mutates: boolean;
+  default: boolean;
+  params_schema: Record<string, unknown>;
+  example_params: Record<string, unknown>;
+}
+

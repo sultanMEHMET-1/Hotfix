@@ -4,7 +4,6 @@ from dataclasses import replace
 import json
 import os
 from pathlib import Path
-import shutil
 import socket
 import subprocess
 import sys
@@ -22,6 +21,7 @@ from services.backend.config import write_allowed
 from services.backend.healer import Candidate
 from services.backend.main import create_app
 from services.backend.tests.test_m1 import CORRECT
+from services.backend.tests.support import make_root
 from services.backend.tests.test_m2 import M2Harness
 
 ROOT = Path(__file__).resolve().parents[3]
@@ -56,7 +56,7 @@ class WriteGuardTests(unittest.TestCase):
 
 class WriteRefusalTests(M2Harness):
     async def served(self, target_url, hosts=()):
-        (self.settings.backend / "workflows/sample-lookup.json").write_text(json.dumps({**self.definition, "mutates": True}))
+        (self.root / "contracts/workflows/sample-lookup.json").write_text(json.dumps({**self.definition, "mutates": True}))
         self.path.write_text(json.dumps({**self.baseline, "target_url": target_url,
                                          "fields": {"submit_button": CORRECT, "input_reference": "#reference"}}))
         app = create_app(replace(self.settings, write_hosts=hosts))
@@ -103,13 +103,10 @@ class SandboxSiteTests(unittest.TestCase):
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
         self.root = Path(self.temp.name)
-        shutil.copytree(ROOT / "contracts", self.root / "contracts")
-        (self.root / "services/backend/workflows").mkdir(parents=True)
-        (self.root / "services/backend/workflows/record-update.json").write_text(json.dumps(RECORD_UPDATE))
         self.baseline = {"workflow_id": "record-update", "target_url": f"{self.site}/records", "version": 1,
                          "fields": {"input_record_id": "#record-id", "input_value": "#record-value",
                                     "save_button": "#save-btn", "saved_value": "[data-testid='saved-value']"}}
-        (self.root / "contracts/selectors.json").write_text(json.dumps(self.baseline))
+        self.path = make_root(self.root, "record-update", RECORD_UPDATE, self.baseline)
         chrome = "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
         executable = os.getenv("MENDER_BROWSER_EXECUTABLE") or (chrome if Path(chrome).is_file() else "")
         env = patch.dict(os.environ, {"SENTRY_DSN": "", "MENDER_BROWSER_EXECUTABLE": executable, "ANONYMIZED_TELEMETRY": "false"})
@@ -181,7 +178,7 @@ class SandboxSiteTests(unittest.TestCase):
         state = self.state()
         print(f"sandbox Gemini heal: {time.perf_counter() - started:.1f} s; cost {payload.get('agent_cost_usd')}; "
               f"agent_ms {payload.get('agent_duration_ms')}; writes {state['writes']}; "
-              f"selector {json.loads((self.root / 'contracts/selectors.json').read_text())['fields']['save_button']}")
+              f"selector {json.loads(self.path.read_text())['fields']['save_button']}")
         self.assertEqual(payload["status"], "healed", payload)
         self.assertEqual(state["records"].get("live-rec"), "live-value")
         self.assertEqual(state["records"].get("canary-record"), "canary-value")

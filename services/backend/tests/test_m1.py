@@ -6,7 +6,6 @@ import copy
 import json
 import os
 from pathlib import Path
-import shutil
 import subprocess
 import sys
 import tempfile
@@ -22,6 +21,7 @@ from contracts.api_types import FailurePayload
 from services.backend.config import BackendError, Settings, Workflow, masked_output
 from services.backend.healer import Candidate, extract_evidence
 from services.backend.main import create_app
+from services.backend.tests.support import make_root
 
 
 ROOT = Path(__file__).resolve().parents[3]
@@ -201,14 +201,11 @@ class EndpointTests(unittest.TestCase):
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
         self.root = Path(self.temp.name)
-        shutil.copytree(ROOT / "contracts", self.root / "contracts")
         self.backend = self.root / "services/backend"
-        (self.backend / "workflows").mkdir(parents=True)
         self.definition = workflow_definition()
-        (self.backend / "workflows/sample-lookup.json").write_text(json.dumps(self.definition))
         self.baseline = {"workflow_id": "sample-lookup", "target_url": "http://portal.test/lookup",
                          "version": 1, "fields": {"input_reference": "#reference", "submit_button": "#broken"}}
-        self.write_selectors(self.baseline)
+        self.path = make_root(self.root, "sample-lookup", self.definition, self.baseline)
         self.settings = Settings(root=self.root, runner_script=FIXTURES / "fake_runner.py", runner_timeout=2)
         self.app = create_app(self.settings)
         self.env = patch.dict(os.environ, {"SENTRY_DSN": ""})
@@ -228,10 +225,10 @@ class EndpointTests(unittest.TestCase):
         self.app.state.diagnose = diagnose
 
     def write_selectors(self, value):
-        (self.root / "contracts/selectors.json").write_text(json.dumps(value))
+        self.path.write_text(json.dumps(value))
 
     def selectors(self):
-        return json.loads((self.root / "contracts/selectors.json").read_text())
+        return json.loads(self.path.read_text())
 
     def recovery_error(self):
         report = next((self.backend / "state").glob("recovery-*.json"))
@@ -386,7 +383,7 @@ class EndpointTests(unittest.TestCase):
 
     def test_failed_rollback_stops_subsequent_execution(self):
         self.new_selector = 'button[data-action="wrong"]'
-        with patch.object(self.app.state.store, "restore", side_effect=OSError("Disk unavailable")):
+        with patch.object(self.app.state.stores["sample-lookup"], "restore", side_effect=OSError("Disk unavailable")):
             payload = self.request().json()
         self.assertEqual(payload["status"], "failed")
         self.assertIn("error", payload)

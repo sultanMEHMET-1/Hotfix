@@ -5,13 +5,15 @@
       "field": "input_permit_id",
       "action_type": "input",
       "role": "textbox",
-      "label": "Permit identification number"
+      "label": "Permit identification number",
+      "param": "permit_id"
     },
     {
       "field": "input_applicant_name",
       "action_type": "input",
       "role": "textbox",
-      "label": "Applicant name"
+      "label": "Applicant name",
+      "param": "applicant_name"
     },
     {
       "field": "submit_button",
@@ -20,6 +22,20 @@
       "label": "Submit Application"
     }
   ],
+  "outputs": {
+    "status": {
+      "field": "status_badge",
+      "read": "text"
+    },
+    "inspector": {
+      "field": "status_badge",
+      "read": "attr:data-inspector"
+    },
+    "permit_id": {
+      "field": "status_badge",
+      "read": "attr:data-permit"
+    }
+  },
   "params_schema": {
     "type": "object",
     "required": [

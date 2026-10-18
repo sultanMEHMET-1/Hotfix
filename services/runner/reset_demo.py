@@ -15,7 +15,7 @@ BASELINE_SUBMIT_SELECTOR = "#submit-btn"
 DEFAULT_PORTAL_URL = "http://127.0.0.1:3000"
 DEFAULT_BACKEND_URL = "http://127.0.0.1:8000"
 REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
-DEFAULT_SELECTOR_PATH = REPOSITORY_ROOT / "contracts" / "selectors.json"
+DEFAULT_SELECTOR_PATH = REPOSITORY_ROOT / "contracts" / "selectors" / "permit-application.json"
 
 
 class ResetError(Exception):

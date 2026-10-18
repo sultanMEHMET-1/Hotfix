@@ -21,7 +21,6 @@ import argparse
 import json
 import os
 from pathlib import Path
-import shutil
 import statistics
 import subprocess
 import sys
@@ -35,6 +34,7 @@ from fastapi.testclient import TestClient
 
 from services.backend.config import Settings
 from services.backend.main import create_app
+from services.backend.tests.support import make_root
 from services.backend.tests.test_real_runner import DEFINITION as PERMIT_DEFINITION
 from services.backend.tests.test_real_runner import PARAMS as PERMIT_PARAMS
 from services.backend.tests.test_real_runner import ROOT, VENV_PYTHON, free_port
@@ -45,8 +45,6 @@ UNKNOWN_COST_USD = 0.15  # counted toward --max-usd when a trial reports no reli
 STABLE = ("data-action", "data-testid", "aria-label", "[id", "#")  # attribute or id based
 FRAGILE = ("nth-", ">", ":first", ":last")
 SANDBOX_PARAMS = {"record_id": "bench-record", "value": "bench-value"}
-SANDBOX_FIELDS = {"input_record_id": "#record-id", "input_value": "#record-value", "save_button": "#save-btn",
-                  "saved_value": "[data-testid='saved-value']"}
 
 
 def selector_quality(selector):
@@ -67,14 +65,14 @@ SCENARIOS = {
     "permit": {
         "server": [str(VENV_PYTHON), str(ROOT / "services/portal/server.py")], "path": "/permits/apply",
         "workflow": "permit-application", "definition": PERMIT_DEFINITION, "params": PERMIT_PARAMS,
-        "fields": None, "chaos": {"enabled": True}, "field": "submit_button",
+        "chaos": {"enabled": True}, "field": "submit_button",
         "runner": FIXTURES / "real_runner_shim.py", "runner_python": None,
         "wrong_output": lambda data: data.get("permit_id") != PERMIT_PARAMS["permit_id"],
     },
     "sandbox-hard": {
         "server": [sys.executable, str(ROOT / "services/backend/sandbox/records_site.py")], "path": "/records",
         "workflow": "record-update", "definition": RECORD_UPDATE, "params": SANDBOX_PARAMS,
-        "fields": SANDBOX_FIELDS, "chaos": {"enabled": True, "hard": True}, "field": "save_button",
+        "chaos": {"enabled": True, "hard": True}, "field": "save_button",
         "runner": FIXTURES / "sandbox_runner.py", "runner_python": sys.executable,
         "wrong_output": lambda data: data != {"record_id": SANDBOX_PARAMS["record_id"], "value": SANDBOX_PARAMS["value"]},
     },
@@ -85,14 +83,9 @@ def trial(model, scenario, base_url, chrome):
     spec = SCENARIOS[scenario]
     with tempfile.TemporaryDirectory() as directory:
         root = Path(directory)
-        shutil.copytree(ROOT / "contracts", root / "contracts")
-        (root / "services/backend/workflows").mkdir(parents=True)
-        (root / f"services/backend/workflows/{spec['workflow']}.json").write_text(json.dumps(spec["definition"]))
-        baseline = json.loads((ROOT / "contracts/selectors.json").read_text())
+        baseline = json.loads((ROOT / f"contracts/selectors/{spec['workflow']}.json").read_text())
         baseline["target_url"] = f"{base_url}{spec['path']}"
-        if spec["fields"]:
-            baseline.update(workflow_id=spec["workflow"], fields=spec["fields"])
-        (root / "contracts/selectors.json").write_text(json.dumps(baseline))
+        selectors_path = make_root(root, spec["workflow"], spec["definition"], baseline)
         env = {"SENTRY_DSN": "", "GEMINI_MODEL": model, "ANONYMIZED_TELEMETRY": "false",
                "MENDER_BROWSER_EXECUTABLE": chrome, "REAL_RUNNER_PYTHON": str(VENV_PYTHON),
                "REAL_PORTAL_URL": base_url, "REAL_RUNNER_SCRIPT": str(ROOT / "services/runner/execute.py"),
@@ -114,7 +107,7 @@ def trial(model, scenario, base_url, chrome):
                 wall = time.perf_counter() - started
                 if "status" not in heal:  # an HTTP error body, for example 503 or 422
                     heal = {"status": "error", "data": {}, "error": {"code": f"http_{heal.get('detail', 'error')}"[:60]}}
-                selector = json.loads((root / "contracts/selectors.json").read_text())["fields"][spec["field"]]
+                selector = json.loads(selectors_path.read_text())["fields"][spec["field"]]
                 after = post()
                 after.setdefault("status", "error")
                 landed = http(f"{base_url}/state")["records"] if scenario == "sandbox-hard" else None

@@ -18,7 +18,7 @@ async def main():
     parser.add_argument("--run-id", required=True)
     args = parser.parse_args()
     params = json.loads(args.params)
-    selectors = json.loads(Path("contracts/selectors.json").read_text())
+    selectors = json.loads(Path(f"contracts/selectors/{args.workflow}.json").read_text())
     directory = Path("runs") / args.run_id
     async with async_playwright() as playwright:
         browser = await playwright.chromium.launch(

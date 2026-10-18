@@ -119,7 +119,7 @@ class M3Tests(M2Harness):
 
     async def test_failed_restoration_blocks_execution_and_is_not_cached(self):
         self.app.state.diagnose = self.poison_submit()
-        with patch.object(self.app.state.store, "restore", side_effect=OSError("/secret/path unavailable")):
+        with patch.object(self.app.state.stores["sample-lookup"], "restore", side_effect=OSError("/secret/path unavailable")):
             payload = (await self.request()).json()
         self.assertEqual(payload["error"]["code"], "rollback_failed")
         self.assertNotIn("heal_records", payload)
@@ -132,7 +132,7 @@ class M3Tests(M2Harness):
     # Reset
 
     def git_commit_baseline(self):
-        for command in (["init", "-q"], ["add", "contracts/selectors.json"],
+        for command in (["init", "-q"], ["add", "contracts/selectors/sample-lookup.json"],
                         ["-c", "user.name=t", "-c", "user.email=t@t", "commit", "-qm", "baseline"]):
             subprocess.run(["git", *command], cwd=self.root, check=True, capture_output=True)
 
@@ -383,10 +383,10 @@ class M3Tests(M2Harness):
             self.app.state.diagnose = self.poison_submit()
             scenarios.append((await self.request()).json())
             self.app.state.recovery.cooldown.clear()
-            async with self.app.state.store.lock(exclusive=True):
+            async with self.app.state.stores["sample-lookup"].lock(exclusive=True):
                 scenarios.append((await self.request()).json())
             self.app.state.recovery.cooldown.clear()
-            with patch.object(self.app.state.store, "restore", side_effect=OSError("/etc/secret-key-123")):
+            with patch.object(self.app.state.stores["sample-lookup"], "restore", side_effect=OSError("/etc/secret-key-123")):
                 scenarios.append((await self.request()).json())
         codes = [payload["error"]["code"] for payload in scenarios]
         self.assertEqual(codes, ["ambiguous_element", "canary_failed", "lock_timeout", "rollback_failed"])
