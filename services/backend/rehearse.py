@@ -12,7 +12,9 @@ def call(url, body=None, timeout=300):
                   method="POST" if body is not None else "GET")
     return json.load(urlopen(req, timeout=timeout))
 def run():
-    t = time.perf_counter(); r = call("http://127.0.0.1:8000/api/v1/run-workflow", P); return r, time.perf_counter() - t
+    started = time.perf_counter()
+    response = call("http://127.0.0.1:8000/api/v1/run-workflow", P)
+    return response, time.perf_counter() - started
 
 rows = []
 for i in range(1, int(sys.argv[1] if len(sys.argv) > 1 else 5) + 1):
