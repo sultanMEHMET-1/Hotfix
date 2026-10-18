@@ -100,18 +100,25 @@ class AdapterTests(unittest.IsolatedAsyncioTestCase):
     async def test_ambiguous_agent_history_is_rejected_and_cleaned(self):
         await self.exercise_adapter("ambiguous")
 
+    async def test_no_unique_live_css_fails_explicitly_and_cleans_browser(self):
+        await self.exercise_adapter("unresolved")
+
+    async def test_no_agent_result_is_retryable_and_clients_are_cleaned(self):
+        await self.exercise_adapter("no_result")
+
     async def exercise_adapter(self, mode):
         from services.backend.healer import diagnose
         history = json.loads((FIXTURES / "recorded_history.json").read_text())
         if mode == "ambiguous":
             history["history"].append(copy.deepcopy(history["history"][2]))
         closed = []
+        clients_closed = []
         class Browser:
             def __init__(self, **kwargs):
                 pass
             async def get_or_create_cdp_session(self):
                 async def evaluate(params, session_id):
-                    selector = CORRECT if 'html/body/button' in params["expression"] else 'input[data-testid="lookup-reference"]'
+                    selector = None if mode == "unresolved" else CORRECT if 'html/body/button' in params["expression"] else 'input[data-testid="lookup-reference"]'
                     return {"result": {"value": selector}}
                 return SimpleNamespace(cdp_client=SimpleNamespace(send=SimpleNamespace(
                     Runtime=SimpleNamespace(evaluate=evaluate))), session_id="test")
@@ -119,7 +126,9 @@ class AdapterTests(unittest.IsolatedAsyncioTestCase):
                 closed.append(True)
         class Chat:
             def __init__(self, **kwargs):
-                pass
+                async def aclose():
+                    clients_closed.append("async")
+                self._client = SimpleNamespace(aio=SimpleNamespace(aclose=aclose), close=lambda: clients_closed.append("sync"))
             async def ainvoke(self):
                 return None
         class Element:
@@ -130,6 +139,8 @@ class AdapterTests(unittest.IsolatedAsyncioTestCase):
             def __init__(self, **kwargs):
                 self.kwargs = kwargs
             async def run(self, max_steps):
+                if mode == "no_result":
+                    return None
                 if mode == "timeout":
                     await asyncio.sleep(30)
                 await self.kwargs["llm"].ainvoke()
@@ -159,8 +170,10 @@ class AdapterTests(unittest.IsolatedAsyncioTestCase):
                 else:
                     with self.assertRaises(BackendError) as caught:
                         await diagnose(settings, Workflow.model_validate(workflow_definition()), {"record_id": "x"}, failure())
-                    self.assertEqual(caught.exception.code, "agent_timeout" if mode == "timeout" else "ambiguous_element")
+                    expected = {"timeout": "agent_timeout", "unresolved": "unresolved_element", "no_result": "agent_no_result"}
+                    self.assertEqual(caught.exception.code, expected.get(mode, "ambiguous_element"))
         self.assertEqual(closed, [True])
+        self.assertEqual(clients_closed, ["async", "sync"])
 
     async def test_failed_sdk_cleanup_force_kills_its_owned_process(self):
         from services.backend.healer import close_browser
@@ -170,7 +183,7 @@ class AdapterTests(unittest.IsolatedAsyncioTestCase):
             raise RuntimeError("SDK cleanup failed")
         browser = SimpleNamespace(kill=broken_kill,
                                   _local_browser_watchdog=SimpleNamespace(browser_pid=process.pid))
-        with self.assertRaises(RuntimeError):
+        with self.assertRaises(BackendError):
             await close_browser(browser)
         self.assertIsNotNone(process.poll())
 
@@ -201,7 +214,7 @@ class EndpointTests(unittest.TestCase):
         _, self.evidence = extract_evidence(history, Workflow.model_validate(self.definition), failure())
         self.new_selector = CORRECT
 
-        async def diagnose(*args):
+        async def diagnose(*args, **kwargs):
             self.calls += 1
             return Candidate(self.new_selector, self.evidence)
         self.app.state.diagnose = diagnose
@@ -211,6 +224,10 @@ class EndpointTests(unittest.TestCase):
 
     def selectors(self):
         return json.loads((self.root / "contracts/selectors.json").read_text())
+
+    def recovery_error(self):
+        report = next((self.backend / "state").glob("recovery-*.json"))
+        return json.loads(report.read_text())["error_code"]
 
     def request(self, **params):
         return self.client.post("/api/v1/run-workflow", json={"workflow": "sample-lookup", "params": {"record_id": "request-123", **params}})
@@ -251,16 +268,20 @@ class EndpointTests(unittest.TestCase):
     def test_schema_valid_wrong_data_fails_canary(self):
         self.new_selector = 'button[data-action="poisoned"]'
         payload = self.request().json()
-        self.assertEqual(payload["error"]["code"], "canary_failed")
+        self.assertEqual(payload["status"], "failed")
+        self.assertNotIn("error", payload)
+        self.assertEqual(self.recovery_error(), "canary_failed")
         self.assertEqual(self.selectors()["fields"], self.baseline["fields"])
         self.assertEqual(self.selectors()["version"], 3)
 
     def test_agent_failure_leaves_baseline_untouched(self):
-        async def timeout(*args):
+        async def timeout(*args, **kwargs):
             raise BackendError("agent_timeout", "Timed out")
         self.app.state.diagnose = timeout
         payload = self.request().json()
-        self.assertEqual(payload["error"]["code"], "agent_timeout")
+        self.assertEqual(payload["status"], "failed")
+        self.assertNotIn("error", payload)
+        self.assertEqual(self.recovery_error(), "agent_timeout")
         self.assertEqual(self.selectors(), self.baseline)
 
     def test_malformed_and_foreign_artifacts_do_not_engage_agent(self):
@@ -274,7 +295,8 @@ class EndpointTests(unittest.TestCase):
     def test_runner_timeout_kills_process(self):
         self.settings.runner_timeout = 0.2
         payload = self.request(case="hang").json()
-        self.assertEqual(payload["error"]["code"], "runner_timeout")
+        self.assertEqual(payload["status"], "failed")
+        self.assertNotIn("error", payload)
         pid = int((self.root / "runner.pid").read_text())
         with self.assertRaises(ProcessLookupError):
             os.kill(pid, 0)
@@ -288,12 +310,12 @@ class EndpointTests(unittest.TestCase):
     def test_cancellation_during_verification_restores_baseline(self):
         original = self.app.state.runner.execute
         calls = 0
-        async def cancelled(*args):
+        async def cancelled(*args, **kwargs):
             nonlocal calls
             calls += 1
             if calls == 2:
                 raise asyncio.CancelledError()
-            return await original(*args)
+            return await original(*args, **kwargs)
         self.app.state.runner.execute = cancelled
         try:
             self.request()
@@ -303,7 +325,7 @@ class EndpointTests(unittest.TestCase):
         self.assertEqual(self.selectors()["version"], 3)
 
     def test_overlapping_requests_cannot_consume_a_provisional_map(self):
-        async def delayed(*args):
+        async def delayed(*args, **kwargs):
             self.calls += 1
             await asyncio.sleep(0.15)
             return Candidate(CORRECT, self.evidence)
@@ -317,16 +339,18 @@ class EndpointTests(unittest.TestCase):
     def test_canary_timeout_rolls_back(self):
         execute = self.app.state.runner.execute
         calls = 0
-        async def timeout(*args):
+        async def timeout(*args, **kwargs):
             nonlocal calls
             calls += 1
             if calls == 3:
                 from services.backend.runner import RunResult
                 return RunResult("canary", error=BackendError("runner_timeout", "Timed out"))
-            return await execute(*args)
+            return await execute(*args, **kwargs)
         self.app.state.runner.execute = timeout
         payload = self.request().json()
-        self.assertEqual(payload["error"]["code"], "canary_failed")
+        self.assertEqual(payload["status"], "failed")
+        self.assertNotIn("error", payload)
+        self.assertEqual(self.recovery_error(), "canary_failed")
         self.assertEqual(self.selectors()["version"], 3)
         self.assertEqual(self.selectors()["fields"], self.baseline["fields"])
 
@@ -356,7 +380,9 @@ class EndpointTests(unittest.TestCase):
         self.new_selector = 'button[data-action="wrong"]'
         with patch.object(self.app.state.store, "restore", side_effect=OSError("Disk unavailable")):
             payload = self.request().json()
-        self.assertEqual(payload["error"]["code"], "rollback_failed")
+        self.assertEqual(payload["status"], "failed")
+        self.assertNotIn("error", payload)
+        self.assertEqual(self.recovery_error(), "rollback_failed")
         self.assertEqual(self.request().status_code, 503)
 
     def test_failed_atomic_replace_preserves_baseline(self):

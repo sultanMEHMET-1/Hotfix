@@ -1,181 +1,201 @@
-# M1 review handoff
+# M2 review handoff
 
 ## Status and review boundary
 
-Implementation baseline: commit `da539ab`, branch `codex/browser-use-recovery`.
-M1 repairs one field with one Browser Use agent attempt per request. It has
-passed local verification and awaits review. This is not approval to begin M2
-or M3, and the full team integration has not been exercised.
+M1 was accepted; M2 is implemented on `codex/browser-use-recovery` and must stop
+for review. The pre-M2 baseline is `e88872e`. M3 cooldown and populated
+`heal_records` are not implemented. No real team portal, runner, or dashboard is
+present in this checkout; integration fixtures are not replacements for them.
 
-The shared response contract already supports future recovery records. M1 uses
-`status`, `execution_time_ms`, `data`, `healed`, `trace_id`, optional `diff`,
-`recovery_attempted`, structured `error`, and available agent metrics. It does
-not populate `heal_records`. Default and unset fields may be omitted by FastAPI;
-consumers must follow the defaults documented in the shared contract.
+The endpoint keeps the shared response model and schema. The user's latest
+instruction deliberately withholds `error`, `agent_cost_usd`,
+`agent_duration_ms`, and `heal_records` from responses, even though the shared
+model currently permits them. Failed execution returns `status="failed"`,
+`healed=false`, and `data={}`. Detail, cost, and token usage belong in logs and
+Sentry. Do not re-enable those response fields without owner approval.
 
-## Read the implementation in this order
+## Read and trace
 
 | Source | Responsibility and review focus |
 | --- | --- |
-| [config.py](config.py) | `Settings`, `Workflow`, `Step`, and `Canary`; workflow discovery, JSON Schema validators, and canary masking. No permit-specific code. |
-| [main.py](main.py) | `create_app` and its `run_workflow` route; request validation, locking, baseline backup, candidate verification, rollback, response, and Sentry context. |
-| [runner.py](runner.py) | `Runner.execute`; argv-only subprocess calls, timeout/cancellation cleanup, strict output validation, and run-specific failure artifacts. |
-| [healer.py](healer.py) | `diagnose`, `extract_evidence`, and `close_browser`; live Gemini/Browser Use, field grounding, CSS candidates, and browser cleanup. |
-| [store.py](store.py) | `SelectorStore` and `atomic_json`; POSIX file locks, same-directory temporary file plus replace, backups, and versioned restoration. |
-| [reset.py](reset.py) | Operator reset through the same validation and exclusive lock. |
-| [terminal.py](terminal.py) | Rich console timeline and live-test result panel; display-only emoji/ANSI cleanup, SDK info filtering, and idempotent console setup. |
+| [main.py](main.py) | Startup validation, bounded fast-path lock acquisition, active-task joining, shielded waiting, each waiter's own replay, response omission policy. |
+| [recovery.py](recovery.py) | Application-owned tasks, one baseline, three-invocation loop, ordered progress, deadline, final canary, rollback, measurement accounting. |
+| [healer.py](healer.py) | Lazy SDK imports, Gemini, executed-history grounding, live CSS capture, browser and cached Google client cleanup. |
+| [runner.py](runner.py) | CLI subprocess, separate stdout/stderr, per-operation/deadline timeouts, process-group termination, raw output validation, owned artifacts. No selector locks. |
+| [store.py](store.py) | POSIX locks, validated atomic writes, backups, higher-version restoration. |
+| [config.py](config.py) | Backend workflow definitions, ordered steps, top-level goal, schemas, canary masking, runtime settings. |
+| [terminal.py](terminal.py) | Rich rendering without emojis; original records and telemetry are preserved. |
+| [reset.py](reset.py) | Operator reset using the same lock and higher-version restoration. |
 
-There is no existing Person 1 runner to call or dashboard to inspect in this
-checkout. The runner files under [tests/fixtures](tests/fixtures) are test
-doubles and local integration fixtures, not replacements for that team's code.
+## Recovery state and invariants
 
-## Actual request and recovery flow
+1. Startup loads workflows and schemas. The configured demo workflow, defaulting
+   to the selector map's workflow ID, requires a canary. Missing runner or workflow
+   configuration remains an explicit 503. Invalid parameters return 422.
+2. If a workflow has an active recovery, join it. Otherwise acquire the shared
+   lock within five seconds, validate map compatibility, and run deterministic
+   execution. Keep the lock for that execution, but bound only acquisition.
+3. Runner failure needs valid, run-owned evidence before recovery. Register an
+   application-owned task without an intervening await. Existing waiters share
+   its result. A request cancellation must not cancel the task.
+4. Recovery starts its 240-second clock at task creation, before exclusive-lock
+   waiting. Work stops after 210 seconds; 30 seconds remain for emergency cleanup
+   and rollback. The initial fast run and any waiter's final replay are outside
+   this recovery clock. Local tests use shorter injected Settings values.
+5. Under the exclusive lock, reread selectors and replay if another writer
+   changed them. Then validate workflow, field, expected selector, and origin;
+   save exactly one baseline backup before the first agent attempt.
+6. Invoke Browser Use at most three times. Agent errors/timeouts/no-result may
+   retry the same field. Ambiguous evidence, invalid candidates, and cleanup
+   failures are terminal. SDK-internal retries do not reset this backend cap.
+7. Ground each candidate in one executed action/result/element match. CSS comes
+   from stable attributes, a unique tag, or live structural targeting. An agent
+   completion statement is never sufficient. No mutable class or XPath is stored.
+8. Write each candidate atomically at the next version. Replay under the lock
+   already held; Runner.execute must never reacquire it. A valid later-step
+   failure retains provisional progress; same/earlier failures abort. Three
+   attempts exhausted also abort.
+9. Final replay output must pass JSON Schema. Run a separate canary, validate raw
+   output, then compare after explicit volatile-field exclusions. Commit only
+   after all checks pass. Generic non-demo definitions may omit a canary.
+10. Any terminal failure restores the entire baseline if a patch was installed.
+    Restoration uses a new version greater than every provisional version. No
+    installed patch means no restoration write. Rollback failure blocks service.
+11. Successful waiters replay with their own parameters/run IDs; failed flights
+    return failure to existing waiters. Completed tasks are removed immediately.
+    There is no cooldown or persistent success/failure cache.
+12. Emit one measurement record per recovery. Independent background Sentry
+    transactions retain the originating trace ID and can finish after the owner
+    request closes. Waiter spans retain a recovery trace reference.
 
-1. Startup loads schemas and workflow definitions. Request parameters must pass
-   the selected workflow schema. Missing definitions/runner or incompatible
-   selector configuration returns 503; unknown workflows return 404; invalid
-   input returns 422.
-2. Under a shared selector lock, invoke the runner with a fresh UUID. Exit zero
-   is success only if stdout is one JSON object matching the output schema.
-3. On failure, accept only a schema-valid payload for this workflow and its own
-   `runs/<run_id>/failure.png`. Failure without usable evidence returns a failed
-   execution response instead of guessing a repair.
-4. Acquire the exclusive lock and reread selectors. If another repair changed
-   the map, replay it first. A successful replay needs no new agent run.
-5. Check the failed field, old selector, and portal origin. Back up the baseline
-   under backend `state/`. Hold the exclusive lock through the rest of recovery.
-6. Lazily import the healer and Browser Use off the event loop. Run the agent on
-   the live portal using top-level workflow `goal` plus request parameters.
-7. The pre-action callback checks unique CSS against the live node. After the
-   run, correlate history actions, corresponding results, interacted elements,
-   role/label, and ordered workflow position. Require a unique match and its
-   captured CSS. Planned actions or the agent's final answer are insufficient.
-8. Atomically write the candidate at the next version. Replay the original
-   request and validate its raw output. When configured, run a separate canary,
-   validate its raw output, then compare after explicit volatile-field masking.
-9. Return healed only after verification passes. On failure after installation,
-   restore baseline contents at a new higher version. If restoration fails,
-   mark the server unavailable rather than allowing further execution.
+All selector writers must follow the lock protocol, including reset. Outside
+editors do not automatically participate. Graceful application shutdown drains
+active tasks. Client/proxy timeouts must cover at least 240 seconds plus initial
+execution, waiter replay, and network overhead. A timeout is not a reset request.
 
-Locks prevent other backend requests from reading a provisional map, but this
-also blocks their fast path while healing runs. All processes writing selectors,
-including reset, must follow the backend's lock protocol. Independent tools
-editing the selector file do not participate automatically.
+## SDK evidence and derivation
 
-## SDK assumptions and evidence
+Verified runtime: Python 3.12.2 and browser-use 0.13.11. Gemini uses native
+`ChatGoogle`, with model/key from the environment. The wrapper requires
+`max_retries >= 1`; the adapter uses 1, six steps, one action per step, and one
+consecutive failure before stopping. Browser Use remains absent on fast success.
 
-- Browser Use is pinned to `0.13.11`; Gemini uses its native `ChatGoogle` wrapper
-  with an environment-provided model and key. The configured model during the
-  successful live check was `gemini-3.8-flash`.
-- The wrapper requires `max_retries >= 1`. M1 uses 1, one action per step, six
-  agent steps, and one consecutive failure before stopping. Do not interpret
-  SDK retry settings as the future backend's three-attempt recovery policy.
-- `model_actions()` alone does not pair action results with element evidence.
-  Inspect serialized history's action, result, and interacted-element arrays.
-- Live CSS capture uses Browser Use's DOM snapshot and CDP session before the
-  action can navigate away. The post-run extractor accepts only corresponding
-  executed evidence. A Browser Use upgrade needs a fresh compatibility check.
-- Emergency cleanup depends on the pinned SDK's private local-browser watchdog
-  and its owned PID. Review this dependency when changing SDK versions.
-- Cost is emitted only for available, finite, positive SDK pricing data;
-  zero is treated conservatively as unavailable. Agent duration measures SDK
-  step time, not browser startup, queueing, or end-to-end request latency.
+The recorded history fixture projects a real Browser Use/Chrome run driven by
+scripted model responses. It supports unique input/button grounding and retains
+executed results, attributes, accessible names, and XPath. It establishes SDK
+history shape, not model reasoning. Paid local tests separately exercise Gemini.
 
-## Verification record and review targets
+Candidate order is `data-testid`, `data-test`, `data-action`, `data-field`, `id`,
+`name`, `aria-label`, a unique tag, then ancestor/direct-child/`:nth-of-type()`
+structure. Every candidate is checked against the exact live node before capture.
+Classes are ignored. Structural CSS may break if the page is reordered later.
+Missing or unsupported live targets fail explicitly and cannot authorize a write.
 
-At the implementation baseline, the default suite ran 31 tests: 30 passed and
-the opt-in live test was skipped. The live test passed separately on macOS with
-local Google Chrome. No tests called the real team portal or runner.
+Emergency browser cleanup depends on the pinned SDK's private local-browser
+watchdog PID. Only its owned process tree is targeted. Review this on upgrades.
+ChatGoogle caches a Google client; close both async and sync clients after every
+invocation. A real live run exposed unclosed transport warnings before this fix.
 
-| Claim to challenge | Relevant checks in [test_m1.py](tests/test_m1.py) |
-| --- | --- |
-| An agent claim cannot install an incorrect selector | `test_wrong_selector_rolls_back_as_a_higher_version`, `test_schema_valid_wrong_data_fails_canary` |
-| Missing/ambiguous history cannot identify a field | `test_ambiguous_failed_and_unexecuted_actions_are_rejected`, `test_ambiguous_agent_history_is_rejected_and_cleaned` |
-| Input and button history retain usable evidence | `test_recorded_input_and_button_map_to_executed_results`, `test_mocked_agent_history_is_grounded_and_browser_is_cleaned` |
-| Failure paths preserve the baseline | `test_cancellation_during_verification_restores_baseline`, `test_canary_timeout_rolls_back`, `test_failed_atomic_replace_preserves_baseline` |
-| A failed rollback cannot silently resume service | `test_failed_rollback_stops_subsequent_execution` |
-| Concurrent requests cannot use provisional selectors | `test_overlapping_requests_cannot_consume_a_provisional_map` |
-| Process and browser cleanup happen | `test_runner_timeout_kills_process`, `test_agent_timeout_always_cleans_browser`, `test_failed_sdk_cleanup_force_kills_its_owned_process` |
-| The fast path avoids Browser Use | `test_app_import_does_not_import_browser_use_or_healer`, `test_fast_success_never_invokes_healer` |
-| Errors group and responses correlate with traces | `test_sentry_fingerprint_spans_and_trace_correlation` |
-| Reset follows version semantics | `test_reset_uses_backup_and_increments_version` |
+## Tests and evidence
 
-[test_contracts.py](tests/test_contracts.py) also checks model/schema agreement,
-response fixtures, legacy response compatibility, and invalid recovery metadata.
-[test_live.py](tests/test_live.py) uses actual Gemini, Browser Use, and a real
-Playwright subprocess replay and canary against a temporary localhost portal.
-All live-test selectors, backups, and workflow definitions are temporary.
+Commands are in [README.md](README.md). The ordinary suite makes no model calls.
+Real-DOM checks require `MENDER_BROWSER_TEST=1` and live dependencies. Paid tests
+require `MENDER_LIVE_TEST=1`; all portal/maps/screenshots/backups are temporary.
+Sanitized live measurement JSON is retained under ignored backend `state/`.
 
-The [recorded history fixture](tests/fixtures/recorded_history.json) is a reduced
-projection of a real Browser Use/Chrome run using scripted model responses. It
-is evidence about SDK history shape, not proof of model reasoning quality.
+Primary [M2 checks](tests/test_m2.py):
 
-Use the commands in [README.md](README.md) to reproduce default tests, opt-in
-live verification, startup, and reset. The documented Uvicorn invocation was
-also checked: it serves OpenAPI and returns an explicit 503 with this checkout's
-missing workflow definitions. Static checks passed with:
+- `test_two_fields_repair_in_order_without_reentrant_deadlock`: exact ordered
+  repairs and only two lock acquisitions, shared then exclusive. An outer
+  timeout catches a re-entrant deadlock; replay and canary actually execute.
+- `test_canary_failure_restores_both_patches_with_higher_version`: version
+  1 -> 2 -> 3 -> restored 4, with original fields and no committed diff.
+- `test_later_repair_failure_restores_first_patch`: earlier progress disappears
+  when later agent retries exhaust; no fourth invocation.
+- `test_deadline_during_agent_restores_first_patch`: shared deadline interrupts
+  an agent after a provisional write and restores the baseline.
+- `test_request_cancellation_after_first_patch_preserves_background_and_waiter`:
+  cancels an ASGI request task and verifies ongoing recovery plus waiter-owned
+  parameters and output. This is not a real TCP-disconnect test.
+- Retry, no-result, ambiguity, invalid candidate, schema rejection, bounded lock
+  waiting, shared lock deadline, missing canary, runner-spawn cancellation, and failed active-flight tests
+  exercise additional boundaries. Failed-flight tests explicitly prove no cooldown.
 
-```sh
-uvx ruff check --isolated --select E4,E7,E9,F services/backend
-git diff --check
-```
+[Real DOM checks](tests/test_selectors.py) mutate classes, exercise stable and
+structural selectors, escape quotes/backslashes/international attributes, and
+reject a missing live target. [M1 checks](tests/test_m1.py) retain regression
+coverage for malformed artifacts, cleanup, rollback failure, atomic-write
+failure, canary masking, tracing, reset, and the import boundary. Their response
+assertions now follow the user's withheld-field policy. Contract tests remain
+unchanged; terminal tests still preserve literal selectors and original records.
 
-### Terminal presentation follow-up
+### Live measurements
 
-The console follow-up keeps M1's workflow behavior and shared contracts intact.
-The default suite now runs 38 tests: 37 passed and the live test was skipped.
-The live Gemini/Browser Use/Playwright test also passed with the Rich timeline
-and verified-result panel. The live console capture contained no emoji
-pictographs. This does not extend the real-team integration or Sentry delivery
-claims above.
+Original retained M1 log: request 24.300 s, entire unittest 27.978 s; tokens and
+agent-only wall time were not retained and cannot be reconstructed.
 
-[test_terminal.py](tests/test_terminal.py) checks display sanitization without
-mutating the original record, composed emoji, literal selectors and markup,
-international labels, error/traceback visibility, idempotent setup with file
-handlers preserved, readable result panels, and actual Browser Use logging for
-both SDK import orders. `configure_logging` runs at app startup, before the
-SDK import, to prevent the SDK's default console handler from taking over.
-`MENDER_LOG_LEVEL=DEBUG` expands console detail. Rendering uses stderr and does
-not force ANSI colors in captured output.
+First instrumented M2 sample, actual Gemini against the localhost fixture:
 
-## Known gaps and integration dependencies
+| Scenario | Request | Recovery | Entire test | Prompt / completion tokens | Total tokens |
+| --- | --- | --- | --- | --- | --- |
+| Button | 19.588 s | 16.907 s | 21.948 s | 21,823 / 1,288 | 23,111 |
+| Two fields | 38.247 s | 35.669 s | 38.708 s | 43,638 / 3,254 | 46,892 |
 
-- **M2 is absent:** no accumulated multi-field patches, three-attempt loop, or
-  monotonic 240-second recovery deadline. In M1, a later-step replay failure
-  causes rollback rather than preserving provisional progress.
-- **M3 is absent:** no shared recovery task, failure cooldown, joined-request
-  accounting, or populated heal-record list. A failed repair can be repeated
-  by the next waiting request. A lock and map recheck are not full single-flight.
-- **Timeouts are not an end-to-end ceiling:** runner calls default to 45 seconds,
-  agent diagnosis to 90, and browser shutdown to 15 before emergency cleanup.
-  Lock waiting and the complete request do not yet have one shared deadline.
-- **Crash recovery is absent:** exception/cancellation rollback does not cover
-  a process crash or forced termination after a patch. Backups exist, but the
-  server does not automatically recover an interrupted transaction on startup.
-- **Cancellation coverage is limited:** tests inject task cancellation during
-  verification. They do not establish that an HTTP client disconnect cancels
-  work, nor cover every possible cancellation timing.
-- **Platform/throughput limits:** one Uvicorn worker and POSIX `fcntl`/process
-  groups are assumed. This is not a Windows-compatible or multi-workflow store.
-  Subprocess output is buffered in memory; only the trace's stderr copy is
-  truncated. Large-output behavior has not been load-tested.
-- **Extraction limits:** unique input/button evidence is exercised. Read-only
-  result-element extraction and iframe targeting are unsupported. Dynamic or
-  duplicate labels can correctly produce an explicit mapping failure.
-- **Integration still needs owners:** Person 1 must provide the agreed runner
-  CLI, per-run artifacts, and a roughly two-second per-step timeout. The team
-  must supply a real read-only workflow definition and correct the current
-  application-oriented selector map/example URL. Person 3 consumes the existing
-  response fields without assuming future M3 fields are populated.
-- **Performance/observability are not fully proven:** the 400 ms fast-path goal
-  has not been benchmarked on the real runner. Sentry grouping/spans/correlation
-  were checked with an in-memory transport; delivery to a real Sentry project,
-  AI monitoring presentation, and portal Session Replay remain unverified.
-- **No canary means schema-only semantic verification.** Schema-valid but wrong
-  data may pass without a representative canary. Canary exclusions cannot
-  remove all comparison, but meaningful business coverage is the owner's job.
+Both used gemini-3.8-flash, Python 3.12.2, browser-use 0.13.11, and local Chrome.
+SDK estimated costs were $0.02119725 and $0.044931, respectively. These are SDK
+estimates, not billing receipts. Cached prompt tokens were zero. Tokens follow
+the SDK's prompt-plus-completion convention; reasoning-token billing is not
+independently reconciled. Single samples do not establish a latency percentile.
 
-If rollback fails, retain the baseline backup, restore it through the reset
-command, and restart the server to clear its unavailable state. Source safety
-claims should be reviewed against these limits, not inferred from a green test
-count. Do not advance beyond the milestone review boundary automatically.
+Final verification after explicit Google client cleanup:
+
+| Scenario | Backend request | Recovery | Entire test | Agent invocations | Prompt / completion | Total tokens |
+| --- | --- | --- | --- | --- | --- | --- |
+| Button | 20.743 s | 17.990 s | 23.076 s | 1, taking 16.788 s | 21,814 / 1,509 | 23,323 |
+| Two fields | 38.668 s | 36.096 s | 39.140 s | 2, taking 15.665 s and 16.635 s | 43,612 / 2,813 | 46,425 |
+
+SDK estimated costs were $0.02201925 and $0.04325775. Both runs had complete
+SDK token summaries and zero cached prompt tokens. Both committed, with selector
+versions 2 and 3 respectively. The final live capture had no unclosed-transport
+warnings; the installed Google dependency still emits a deprecation warning.
+
+Retained final reports (ignored local artifacts):
+
+- `state/live-button-e4c2d555-f770-47ad-a8d7-0a47562a61e2.json`
+- `state/live-two-fields-da1a6595-4e04-41fc-b1cc-05814c0d07be.json`
+
+Default suite: **64 tests, 57 passed and 7 opt-in tests skipped**. The final
+combined live/real-DOM command ran **7 tests, all passed**. It enabled both
+`MENDER_LIVE_TEST=1` and `MENDER_BROWSER_TEST=1` and selected
+`services.backend.tests.test_live services.backend.tests.test_selectors`.
+Static `ruff --isolated --select E4,E7,E9,F` and `git diff --check` also passed.
+
+Adversarial mutation checks ran in an isolated test process without editing
+source: replacing restoration with a no-op made the canary rollback test fail;
+forcing every ordered-step position to zero made the two-field test fail.
+Both expected failures were detected, proving those acceptance checks can reject
+broken implementations. Mutation patches were removed before normal verification.
+
+## Remaining limits
+
+- M3 cooldown and heal records remain absent. A request after a failed task has
+  finished may start a new recovery immediately.
+- No automatic crash recovery. Forced termination after a provisional write
+  may leave it installed; preserve backups and use reset, then restart.
+- The deadline assumes a responsive process/OS. Synchronous filesystem work
+  cannot be preempted by asyncio. Cleanup overruns or failures block the backend;
+  the 240-second ceiling is not a guarantee against an OS stall or forced kill.
+- POSIX locks/process groups, one Uvicorn worker, and one configured selector map
+  remain demo constraints. This is not a multi-worker distributed coordinator.
+- Subprocess stdout/stderr are buffered in memory. Output-volume limits and load
+  testing are not implemented. Read-only result extraction and iframes remain
+  unsupported; duplicate/dynamic labels may explicitly fail grounding.
+- Person 1 still needs to supply the real runner, artifacts, and approximately
+  two-second per-step selector timeouts. The real read-only workflow definition,
+  representative canary, and actual portal URL are still team dependencies.
+- Local fixture measurements do not prove real portal latency or the 400 ms
+  fast-path target. Live Sentry delivery, its UI presentation, and portal Session
+  Replay remain unverified; in-memory trace/grouping checks are narrower evidence.
+
+If restoration or cleanup fails, inspect the logged reason, preserve the baseline,
+stop owned resources, reset under the same lock, and restart before retrying.

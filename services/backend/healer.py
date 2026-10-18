@@ -1,7 +1,7 @@
 """Ground repairs in executed Browser Use history, never agent claims."""
 
 import asyncio
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from html.parser import HTMLParser
 import json
 import math
@@ -21,6 +21,7 @@ class Candidate:
     evidence: HealEvidence
     cost_usd: float | None = None
     duration_ms: float | None = None
+    metrics: dict = field(default_factory=dict)
 
 
 def normalized(text):
@@ -64,8 +65,43 @@ def css_candidates(element):
     for name in ("data-testid", "data-test", "data-action", "data-field", "id", "name", "aria-label"):
         value = attrs.get(name)
         if value and not any(ord(char) < 32 for char in value):
-            yield f"{tag}[{name}={json.dumps(value)}]"
+            yield f"{tag}[{name}={json.dumps(value, ensure_ascii=False)}]"
     yield tag
+
+
+def selector_expression(element):
+    """Stable attributes first; structural CSS uses the same live node, never classes."""
+    return """(() => {
+      const target = document.evaluate(XPATH, document, null,
+        XPathResult.FIRST_ORDERED_NODE_TYPE, null).singleNodeValue;
+      if (!(target instanceof Element) || !target.isConnected) return null;
+      const matchesTarget = selector => {
+        const matches = document.querySelectorAll(selector);
+        return matches.length === 1 && matches[0] === target;
+      };
+      const direct = CANDIDATES.find(matchesTarget);
+      if (direct) return direct;
+      const names = ['data-testid', 'data-test', 'data-action', 'data-field', 'id', 'name', 'aria-label'];
+      let path = '';
+      for (let node = target; node; node = node.parentElement) {
+        const tag = CSS.escape(node.localName);
+        if (path) {
+          for (const name of names) {
+            const value = node.getAttribute(name);
+            if (!value || /[\\x00-\\x1f]/.test(value)) continue;
+            const anchored = `${tag}[${name}=${JSON.stringify(value)}] > ${path}`;
+            if (matchesTarget(anchored)) return anchored;
+          }
+        }
+        const siblings = node.parentElement ? [...node.parentElement.children].filter(
+          sibling => sibling.localName === node.localName) : [node];
+        const part = siblings.length > 1 ? `${tag}:nth-of-type(${siblings.indexOf(node) + 1})` : tag;
+        path = path ? `${part} > ${path}` : part;
+        if (matchesTarget(path)) return path;
+      }
+      return null;
+    })()""".replace("XPATH", json.dumps(element["x_path"])).replace(
+        "CANDIDATES", json.dumps(list(css_candidates(element))))
 
 
 def extract_evidence(history: dict, workflow, failure):
@@ -157,25 +193,36 @@ def force_close_browser(browser):
         pass
 
 
-async def close_browser(browser):
+async def close_browser(browser, *, deadline=None):
     cleanup = asyncio.create_task(browser.kill())
     try:
-        await asyncio.wait_for(asyncio.shield(cleanup), timeout=15)
-    except BaseException:
+        timeout = 15 if deadline is None else min(15, max(0, deadline - asyncio.get_running_loop().time() - 3))
+        await asyncio.wait_for(asyncio.shield(cleanup), timeout=timeout)
+    except BaseException as exc:
         cleanup.cancel()
-        await asyncio.to_thread(force_close_browser, browser)
+        try:
+            await asyncio.to_thread(force_close_browser, browser)
+        except Exception as cleanup_error:
+            raise BackendError("browser_cleanup_failed", "The owned browser could not be stopped") from cleanup_error
         await asyncio.wait({cleanup}, timeout=1)
+        if not isinstance(exc, asyncio.CancelledError):
+            raise BackendError("browser_cleanup_failed", "Browser shutdown required emergency cleanup") from exc
         raise
 
 
-async def diagnose(settings, workflow, params, failure):
+async def diagnose(settings, workflow, params, failure, *, deadline=None):
     key = os.getenv("GOOGLE_API_KEY") or os.getenv("GEMINI_API_KEY")
     model = os.getenv("GEMINI_MODEL")
     if not key or not model:
         raise BackendError("model_unconfigured", "Set GOOGLE_API_KEY and GEMINI_MODEL before live recovery")
     browser = None
+    llm = None
+    metrics = {"model": model}
+    clock = asyncio.get_running_loop().time
+    started = clock()
+    timeout = settings.agent_timeout if deadline is None else min(settings.agent_timeout, max(0, deadline - clock()))
     try:
-        async with asyncio.timeout(settings.agent_timeout):
+        async with asyncio.timeout(timeout):
             Agent, BrowserSession, ChatGoogle, DOMInteractedElement = await asyncio.to_thread(load_browser_use)
             browser = BrowserSession(
                 headless=settings.headless, executable_path=settings.browser_executable,
@@ -195,18 +242,8 @@ async def diagnose(settings, workflow, params, failure):
                     if element.get("frame_id"):
                         continue
                     cdp = await browser.get_or_create_cdp_session()
-                    expression = """(() => {
-                      const target = document.evaluate(XPATH, document, null,
-                        XPathResult.FIRST_ORDERED_NODE_TYPE, null).singleNodeValue;
-                      return CANDIDATES.find(selector => {
-                        const matches = document.querySelectorAll(selector);
-                        return matches.length === 1 && matches[0] === target;
-                      }) || null;
-                    })()""".replace("XPATH", json.dumps(element["x_path"])).replace(
-                        "CANDIDATES", json.dumps(list(css_candidates(element)))
-                    )
                     response = await cdp.cdp_client.send.Runtime.evaluate(
-                        params={"expression": expression, "returnByValue": True}, session_id=cdp.session_id
+                        params={"expression": selector_expression(element), "returnByValue": True}, session_id=cdp.session_id
                     )
                     value = response.get("result", {}).get("value")
                     if value:
@@ -239,18 +276,56 @@ async def diagnose(settings, workflow, params, failure):
                 agent_span.set_data("gen_ai.agent.name", "Browser Use")
                 agent_span.set_data("gen_ai.operation.name", "invoke_agent")
                 history = await agent.run(max_steps=6)
+            if history is None:
+                raise BackendError("agent_no_result", "Browser Use returned no history")
+            usage = history.usage
+            if usage and usage.entry_count:
+                for key, attr in (("prompt_tokens", "total_prompt_tokens"), ("completion_tokens", "total_completion_tokens"),
+                                  ("cached_prompt_tokens", "total_prompt_cached_tokens"), ("total_tokens", "total_tokens")):
+                    value = getattr(usage, attr, None)
+                    if isinstance(value, int) and value >= 0:
+                        metrics[key] = value
+                if math.isfinite(usage.total_cost) and usage.total_cost > 0:
+                    metrics["cost_usd"] = usage.total_cost
             serialized = history.model_dump()
+            if not serialized.get("history"):
+                raise BackendError("agent_no_result", "Browser Use returned empty history")
+            if any(result.get("error") for result in serialized["history"][-1].get("result", []) if result):
+                raise BackendError("agent_error", "Browser Use ended with an action error")
             element, evidence = extract_evidence(serialized, workflow, failure)
             selector = captured.get((element["backend_node_id"], element["x_path"]))
             if not selector or selector == failure.expected_selector:
                 raise BackendError("unresolved_element", "No unique replacement CSS selector was verified on the live page")
-            usage = history.usage
-            cost = usage.total_cost if usage and usage.entry_count and math.isfinite(usage.total_cost) and usage.total_cost > 0 else None
+            cost = metrics.get("cost_usd")
             duration = history.total_duration_seconds() * 1000
             return Candidate(selector, evidence, cost,
-                             duration if math.isfinite(duration) and duration >= 0 else None)
+                             duration if math.isfinite(duration) and duration >= 0 else None, metrics)
     except TimeoutError as exc:
-        raise BackendError("agent_timeout", "Browser Use exceeded its execution timeout") from exc
+        error = BackendError("agent_timeout", "Browser Use exceeded its execution timeout")
+        error.agent_metrics = metrics
+        raise error from exc
+    except BackendError as exc:
+        exc.agent_metrics = metrics
+        raise
+    except Exception as exc:
+        sentry_sdk.capture_exception(exc)
+        error = BackendError("agent_error", "Browser Use invocation failed")
+        error.agent_metrics = metrics
+        raise error from exc
     finally:
-        if browser:
-            await close_browser(browser)
+        metrics["wall_time_ms"] = (clock() - started) * 1000
+        cleanup_deadline = deadline + settings.cleanup_reserve if deadline is not None else None
+        try:
+            if browser:
+                await close_browser(browser, deadline=cleanup_deadline)
+        finally:
+            # ChatGoogle caches this client but does not close it when Agent.run ends.
+            client = getattr(llm, "_client", None)
+            if client is not None:
+                try:
+                    timeout = 3 if cleanup_deadline is None else min(3, max(0.001, cleanup_deadline - clock()))
+                    await asyncio.wait_for(client.aio.aclose(), timeout=timeout)
+                    timeout = 3 if cleanup_deadline is None else min(3, max(0.001, cleanup_deadline - clock()))
+                    await asyncio.wait_for(asyncio.to_thread(client.close), timeout=timeout)
+                except Exception as exc:
+                    raise BackendError("model_cleanup_failed", "Gemini client could not be closed") from exc

@@ -13,8 +13,8 @@ These instructions supplement the repository and global AGENTS.md instructions.
 
 ## Current scope and boundaries
 
-- M1 is implemented and waiting for review. Stop after M1 review; M2 and M3
-  require the user's explicit instruction to continue.
+- M1 was accepted. M2 is implemented and requires review before continuing.
+  M3 cooldown and heal_records require explicit user instruction.
 - Backend source, tests, fixtures, and docs belong under `services/backend/`.
   Portal, runner, and dashboard implementation belong to other team members.
 - Treat the shared JSON schemas and models as authoritative. Import shared
@@ -35,12 +35,20 @@ These instructions supplement the repository and global AGENTS.md instructions.
   failure artifacts belonging to that run before starting the agent.
 - Unique field grounding using executed action/result/element evidence and
   workflow order. Agent completion text cannot authorize a selector change.
-- Locked backup, atomic patch, real runner replay, optional canary, and rollback
-  on verification failure or delivered task cancellation.
+- One locked baseline, accumulated atomic patches, runner replay, and rollback
+  of the whole transaction on terminal failure. The demo requires a canary.
+- Recovery owns its task and deadline. Request cancellation must not cancel it.
+  Waiters shield the task and replay with their own params and fresh run IDs.
+- At most three agent invocations, a 240-second recovery budget with 30 seconds
+  reserved for cleanup, and a five-second ordinary lock acquisition limit.
+- Agent errors/timeouts/no-result may retry. Ambiguous evidence, invalid
+  candidates, and same/earlier-step replay failures abort without retry.
 - Every selector write, including rollback and reset, advances the version.
   Rollback failure blocks further execution until reset and server restart.
-- Responses follow the shared schema. Unset/default optional fields can be
-  omitted. M1 does not populate `heal_records` or implement shared flights.
+- Responses follow the shared schema. Omit error, agent_cost_usd,
+  agent_duration_ms, and heal_records pending owner approval. Failure is
+  status=failed, healed=false, data={}; error detail and usage belong in logs.
+- Only active-task joining is implemented. Do not add M3 cooldown or records.
 - Terminal output uses Rich without emojis. Keep cleanup in the renderer;
   preserve original log records, literal selectors, errors, and Sentry context.
 

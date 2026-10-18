@@ -1,19 +1,18 @@
-"""M1: one broken field, deterministic verification, and rollback."""
+"""Deterministic execution and request-independent transactional recovery."""
 
 import asyncio
 from contextlib import asynccontextmanager
-import importlib
 import logging
 import math
 import time
-from urllib.parse import urlsplit
 
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel, ConfigDict, Field
 import sentry_sdk
 
-from contracts.api_types import RecoveryError, SelectorDiff, WorkflowExecutionResponse
-from .config import BackendError, Settings, load_workflows, masked_output, read_json, validator
+from contracts.api_types import WorkflowExecutionResponse
+from .config import BackendError, Settings, load_workflows, read_json, validator
+from .recovery import Recovery
 from .runner import Runner
 from .store import SelectorStore
 from .terminal import configure_logging
@@ -55,11 +54,20 @@ def create_app(settings=None):
         app.state.configuration_error = None
         app.state.diagnose = None
         try:
-            if any(not math.isfinite(value) or value <= 0 for value in (settings.runner_timeout, settings.agent_timeout)):
+            timeouts = (settings.runner_timeout, settings.agent_timeout, settings.recovery_timeout,
+                        settings.cleanup_reserve, settings.lock_timeout)
+            if any(not math.isfinite(value) or value <= 0 for value in timeouts):
                 raise ValueError("Timeouts must be positive")
+            if settings.cleanup_reserve >= settings.recovery_timeout:
+                raise ValueError("Cleanup reserve must be shorter than recovery timeout")
             app.state.workflows = load_workflows(settings)
             app.state.store = SelectorStore(settings)
-            app.state.store.read()
+            selector_map = app.state.store.read()
+            demo_id = settings.demo_workflow or selector_map["workflow_id"]
+            if settings.demo_workflow and demo_id not in app.state.workflows:
+                raise ValueError("Configured demo workflow definition is missing")
+            if demo_id in app.state.workflows and app.state.workflows[demo_id][0].canary is None:
+                raise ValueError("The demo workflow requires a canary")
             app.state.runner = Runner(settings)
             app.state.response_validator = validator(read_json(
                 settings.root / "contracts/workflow_execution_response.schema.json"
@@ -67,12 +75,17 @@ def create_app(settings=None):
         except Exception:
             app.state.configuration_error = "Invalid backend configuration; check workflow definitions and contracts"
             log.exception("Backend configuration failed")
-        yield
+        app.state.recovery = Recovery(app, settings)
+        try:
+            yield
+        finally:
+            await app.state.recovery.drain()
 
     app = FastAPI(title="Mender backend", lifespan=lifespan)
 
     @app.post("/api/v1/run-workflow", response_model=WorkflowExecutionResponse,
-              response_model_exclude_none=True, response_model_exclude_defaults=True)
+              response_model_exclude_none=True, response_model_exclude_defaults=True,
+              response_model_exclude={"error", "agent_cost_usd", "agent_duration_ms", "heal_records"})
     async def run_workflow(request: WorkflowRequest):
         start = time.monotonic()
         if app.state.configuration_error:
@@ -95,121 +108,95 @@ def create_app(settings=None):
                 log.info("Running workflow %s", request.workflow, extra={"phase": "FAST"})
                 trace_id = span.trace_id
                 attempted = False
-                candidate = None
                 diff = None
                 error = None
                 data = {}
+                recovery = app.state.recovery
                 try:
-                    async with store.lock():
-                        if app.state.configuration_error:
-                            raise HTTPException(503, app.state.configuration_error)
-                        selectors = store.read()
-                        if selectors["workflow_id"] != request.workflow:
-                            raise HTTPException(503, "The selector map belongs to another workflow")
-                        if not all(step.field in selectors["fields"] for step in workflow.steps):
-                            raise HTTPException(503, "Workflow steps reference unknown selector fields")
-                        result = await runner.execute(request.workflow, request.params, output_validator)
-                    if result.data is not None:
-                        data = result.data
-                    else:
-                        capture_failure(request.workflow, result)
-                        log.warning("%s", str(result.error), extra={"phase": "BROKEN"})
-                        if result.failure is None:
-                            raise result.error
-                        # ponytail: one selector map, so serialize M1 repairs; M3 adds shared flights.
-                        async with store.lock(exclusive=True):
-                            baseline = store.read()
-                            if baseline != selectors:
+                    task = recovery.active(request.workflow)
+                    owner = False
+                    if task is None:
+                        lock = store.lock()
+                        locked = False
+                        try:
+                            async with asyncio.timeout(settings.lock_timeout):
+                                await lock.__aenter__()
+                            locked = True
+                        except TimeoutError:
+                            task = recovery.active(request.workflow)
+                            if task is None:
+                                raise BackendError("lock_timeout", "Selector map busy; fast-path lock wait exceeded")
+                        if locked:
+                            try:
+                                if app.state.configuration_error:
+                                    raise HTTPException(503, app.state.configuration_error)
+                                selectors = store.read()
+                                if selectors["workflow_id"] != request.workflow:
+                                    raise HTTPException(503, "The selector map belongs to another workflow")
+                                if not all(step.field in selectors["fields"] for step in workflow.steps):
+                                    raise HTTPException(503, "Workflow steps reference unknown selector fields")
                                 result = await runner.execute(request.workflow, request.params, output_validator)
+                            finally:
+                                await lock.__aexit__(None, None, None)
                             if result.data is not None:
                                 data = result.data
                             else:
-                                if not result.failure:
+                                capture_failure(request.workflow, result)
+                                log.warning("%s", result.error, extra={"phase": "BROKEN"})
+                                if result.failure is None:
                                     raise result.error
-                                failure = result.failure
-                                if baseline["fields"].get(failure.failed_step) != failure.expected_selector:
-                                    raise BackendError("stale_failure", "Failure does not match the current selector map")
-                                if failure.failed_step not in {step.field for step in workflow.steps}:
-                                    raise BackendError("unmapped_step", "Failed step is absent from ordered workflow steps")
-                                if urlsplit(failure.page_url)[:2] != urlsplit(baseline["target_url"])[:2]:
-                                    raise BackendError("unexpected_page", "Failure page does not match the configured portal origin")
-                                store.backup(result.run_id, baseline)
-                                attempted = True
-                                sentry_sdk.set_tag("mode", "healed")
-                                sentry_sdk.set_tag("tier", "agent")
-                                sentry_sdk.add_breadcrumb(category="healer", message="Browser Use Agent Engaged")
-                                log.info("Browser Use engaged for %s", failure.failed_step, extra={"phase": "AGENT"})
-                                diagnose = app.state.diagnose
-                                if diagnose is None:
-                                    module = await asyncio.to_thread(importlib.import_module, ".healer", __package__)
-                                    diagnose = module.diagnose
-                                with sentry_sdk.start_span(op="healer.diagnose", name="Browser Use diagnosis"):
-                                    candidate = await diagnose(settings, workflow, request.params, failure)
-                                if candidate.selector == failure.expected_selector or not candidate.selector.strip():
-                                    raise BackendError("invalid_candidate", "Healer did not propose a replacement selector")
-                                sentry_sdk.set_tag("new_selector", candidate.selector)
-                                installed = False
-                                try:
-                                    with sentry_sdk.start_span(op="healer.patch", name="Patch and deterministic verification"):
-                                        patched = {**baseline, "fields": {**baseline["fields"],
-                                                   failure.failed_step: candidate.selector},
-                                                   "version": baseline["version"] + 1}
-                                        store.write(patched)
-                                        installed = True
-                                        log.info("%s -> %s (version %s)", failure.expected_selector,
-                                                 candidate.selector, patched["version"], extra={"phase": "PATCH"})
-                                        replay = await runner.execute(request.workflow, request.params, output_validator)
-                                        if replay.data is None:
-                                            raise BackendError("verification_failed", "Deterministic replay rejected the replacement; baseline restored")
-                                        log.info("Deterministic replay and output schema passed", extra={"phase": "VERIFY"})
-                                        if workflow.canary:
-                                            canary = await runner.execute(request.workflow, workflow.canary.params, output_validator)
-                                            if canary.data is None or masked_output(canary.data, workflow.canary.ignore_paths) != masked_output(
-                                                workflow.canary.expected_output, workflow.canary.ignore_paths
-                                            ):
-                                                raise BackendError("canary_failed", "Canary rejected the replacement; baseline restored")
-                                            log.info("Known lookup matched expected output", extra={"phase": "CANARY"})
-                                        data = replay.data
-                                        diff = SelectorDiff(old_selector=failure.expected_selector, new_selector=candidate.selector)
-                                except BaseException:
-                                    if installed:
-                                        try:
-                                            restored = store.restore(baseline)
-                                            log.warning("Baseline restored as version %s", restored, extra={"phase": "ROLLBACK"})
-                                        except Exception as rollback_error:
-                                            app.state.configuration_error = "Rollback failed; restore the baseline backup before restarting the backend"
-                                            raise BackendError("rollback_failed", app.state.configuration_error) from rollback_error
-                                    raise
+                                owner = recovery.active(request.workflow) is None
+                                task = recovery.start(request.workflow, workflow, request.params, output_validator, selectors, result)
+                    if task is not None:
+                        attempted = True
+                        outcome = await asyncio.shield(task)
+                        attempted = outcome.attempted
+                        span.set_data("recovery.trace_id", outcome.trace_id)
+                        if outcome.error:
+                            raise outcome.error
+                        diff = outcome.diff
+                        if owner:
+                            data = outcome.data
+                        else:
+                            # Shared healing is verified once; each waiter still gets its own output.
+                            async with asyncio.timeout(settings.lock_timeout):
+                                lock = store.lock()
+                                await lock.__aenter__()
+                            try:
+                                own = await runner.execute(request.workflow, request.params, output_validator)
+                            finally:
+                                await lock.__aexit__(None, None, None)
+                            if own.data is None:
+                                raise own.error
+                            data = own.data
+                except TimeoutError:
+                    error = BackendError("lock_timeout", "Selector map busy; fast-path lock wait exceeded")
                 except BackendError as exc:
-                    error = RecoveryError(code=exc.code, message=str(exc))
+                    error = exc
+                    if exc.code in {"browser_cleanup_failed", "runner_cleanup_failed", "model_cleanup_failed"}:
+                        app.state.configuration_error = str(exc)
                 except HTTPException:
                     raise
                 except asyncio.CancelledError:
                     raise
                 except Exception:
                     sentry_sdk.capture_exception()
-                    error = RecoveryError(code="recovery_failed", message="Recovery failed; inspect the Sentry trace")
+                    error = BackendError("execution_failed", "Workflow execution failed")
                 success = error is None
-                sentry_sdk.set_tag("heal_success", bool(diff) and success)
-                if attempted:
-                    log.log(logging.INFO if success else logging.WARNING,
-                            "Recovery %s in %.2f s", "verified" if success else "failed", time.monotonic() - start, extra={
-                        "phase": "HEALED" if success else "FAILED",
-                        "workflow": request.workflow, "mode": "healed", "heal_success": bool(diff) and success,
-                        "old_selector": result.failure.expected_selector if result.failure else None,
-                        "new_selector": candidate.selector if candidate else None,
-                        "error_code": error.code if error else None,
-                    })
-                if diff:
-                    sentry_sdk.set_tag("new_selector", diff.new_selector)
+                healed = bool(diff) and success
+                if error:
+                    log.error("%s: %s", error.code, error, extra={"phase": "FAILED"})
+                sentry_sdk.set_tag("mode", "healed" if attempted else "fast")
+                sentry_sdk.set_tag("heal_success", healed)
+                log.log(logging.INFO if success else logging.WARNING, "Workflow %s in %.2f s",
+                        "verified" if success else "failed", time.monotonic() - start,
+                        extra={"phase": "HEALED" if healed else ("FAST" if success else "FAILED")})
                 span.set_status("ok" if success else "internal_error")
                 response = WorkflowExecutionResponse(
-                    status="healed" if diff else ("success" if success else "failed"),
+                    status="healed" if healed else ("success" if success else "failed"),
                     execution_time_ms=(time.monotonic() - start) * 1000,
-                    data=data if success else {}, healed=bool(diff), trace_id=trace_id,
-                    diff=diff, recovery_attempted=attempted, error=error,
-                    agent_cost_usd=candidate.cost_usd if candidate else None,
-                    agent_duration_ms=candidate.duration_ms if candidate else None,
+                    data=data if success else {}, healed=healed, trace_id=trace_id,
+                    diff=diff if success else None, recovery_attempted=attempted,
                 )
                 app.state.response_validator.validate(response.model_dump(exclude_none=True))
                 return response

@@ -25,9 +25,17 @@ if case == "junk":
     print("not JSON")
     sys.exit(0)
 selectors = json.loads(Path("contracts/selectors.json").read_text())
-target = selectors["fields"]["submit_button"]
+field = "input_reference"
+input_selector = selectors["fields"][field]
+input_ok = input_selector in {"#reference", 'input[data-testid="lookup-reference"]'}
+if input_ok:
+    field = "submit_button"
+target = selectors["fields"][field]
 correct = target == 'button[data-action="lookup"]'
-if correct or target == 'button[data-action="poisoned"]':
+if input_ok and (correct or target == 'button[data-action="poisoned"]'):
+    if case == "invalid-replay":
+        print(json.dumps({"record_id": params["record_id"], "status": "invalid"}))
+        sys.exit(0)
     record_id = params["record_id"]
     if target == 'button[data-action="poisoned"]':
         record_id = "wrong-record"
@@ -41,10 +49,10 @@ directory.mkdir(parents=True)
 failure = {
     "workflow_id": args.workflow,
     "timestamp": time.time() * 1000,
-    "failed_step": "submit_button",
+    "failed_step": field,
     "expected_selector": target,
     "page_url": selectors["target_url"],
-    "dom_snippet": '<button data-action="lookup">Look up record</button>',
+    "dom_snippet": '<input data-testid="lookup-reference" aria-label="Record reference"><button data-action="lookup">Look up record</button>',
     "screenshot_path": str(directory / "failure.png"),
     "error_message": "Missing selector",
 }

@@ -27,12 +27,15 @@ def reject_constant(value):
     raise ValueError(f"Non-JSON numeric constant: {value}")
 
 
-async def stop_process(process):
+async def stop_process(process, timeout=5):
     try:
         os.killpg(process.pid, signal.SIGKILL)
     except ProcessLookupError:
         pass
-    await process.wait()
+    try:
+        await asyncio.wait_for(process.wait(), timeout=max(0.001, timeout))
+    except TimeoutError as exc:
+        raise BackendError("runner_cleanup_failed", "Runner process could not be reaped") from exc
 
 
 class Runner:
@@ -42,7 +45,7 @@ class Runner:
             read_json(settings.root / "contracts/failure_payload.schema.json")
         )
 
-    async def execute(self, workflow_id: str, params: dict, output_validator):
+    async def execute(self, workflow_id: str, params: dict, output_validator, *, deadline=None):
         run_id = str(uuid4())
         args = [self.settings.runner_python, str(self.settings.script),
                 "--workflow", workflow_id, "--params", json.dumps(params, allow_nan=False),
@@ -55,18 +58,32 @@ class Runner:
         with sentry_sdk.start_span(op="runner.execute", name="runner.execute") as span:
             span.set_data("run_id", run_id)
             try:
-                process = await asyncio.create_subprocess_exec(
+                spawning = asyncio.create_task(asyncio.create_subprocess_exec(
                     *args, cwd=self.settings.root, stdout=asyncio.subprocess.PIPE,
                     stderr=asyncio.subprocess.PIPE, start_new_session=True,
-                )
+                ))
+                try:
+                    process = await asyncio.shield(spawning)
+                except asyncio.CancelledError:
+                    # Collect the handle even if cancellation lands between spawn and assignment.
+                    try:
+                        process = await asyncio.shield(spawning)
+                    except OSError:
+                        raise asyncio.CancelledError() from None
+                    await asyncio.shield(stop_process(process))
+                    raise
             except OSError as exc:
                 raise BackendError("runner_unavailable", "The configured runner cannot be started") from exc
             try:
-                stdout, stderr = await asyncio.wait_for(
-                    process.communicate(), timeout=self.settings.runner_timeout
-                )
+                timeout = self.settings.runner_timeout
+                if deadline is not None:
+                    timeout = min(timeout, max(0, deadline - asyncio.get_running_loop().time()))
+                stdout, stderr = await asyncio.wait_for(process.communicate(), timeout=timeout)
             except (TimeoutError, asyncio.CancelledError) as exc:
-                await asyncio.shield(stop_process(process))
+                cleanup_timeout = 5 if deadline is None else min(5, max(
+                    0.001, deadline + self.settings.cleanup_reserve - asyncio.get_running_loop().time()
+                ))
+                await asyncio.shield(stop_process(process, cleanup_timeout))
                 if isinstance(exc, asyncio.CancelledError):
                     raise
                 span.set_status("deadline_exceeded")

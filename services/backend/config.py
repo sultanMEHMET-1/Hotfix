@@ -61,6 +61,10 @@ class Settings:
     runner_python: str = sys.executable
     runner_timeout: float = 45
     agent_timeout: float = 90
+    recovery_timeout: float = 240
+    cleanup_reserve: float = 30
+    lock_timeout: float = 5
+    demo_workflow: str | None = None
     headless: bool = True
     browser_executable: str | None = None
     propagate_trace: bool = False
@@ -77,6 +81,7 @@ class Settings:
             runner_python=os.getenv("MENDER_RUNNER_PYTHON", sys.executable),
             runner_timeout=float(os.getenv("MENDER_RUNNER_TIMEOUT", "45")),
             agent_timeout=float(os.getenv("MENDER_AGENT_TIMEOUT", "90")),
+            demo_workflow=os.getenv("MENDER_DEMO_WORKFLOW"),
             headless=os.getenv("MENDER_HEADLESS", "true").lower() != "false",
             browser_executable=os.getenv("MENDER_BROWSER_EXECUTABLE"),
             propagate_trace=os.getenv("MENDER_PROPAGATE_TRACE", "false").lower() == "true",
