@@ -3,6 +3,7 @@
 from dataclasses import replace
 import json
 import os
+import random
 from pathlib import Path
 import socket
 import subprocess
@@ -42,6 +43,29 @@ class SeedInventoryTests(unittest.TestCase):
         for quantity, expected in ((0, "Out"), (1, "Low"), (4, "Low"), (5, "In stock")):
             self.assertEqual(stock(quantity), expected)
         self.assertTrue({0, 1, 4, 5}.issubset({item["quantity"] for item in SEED_DETAILS.values()}))
+
+
+class BreakSequenceTests(unittest.TestCase):
+    def test_clicks_pick_heal_able_breaks_then_the_login_wall_then_nothing(self):
+        from services.backend.sandbox import records_site as site
+        state = site.fresh_state()
+        rng = random.Random(7)
+        seen = []
+        while (key := site.next_break(state, rng)) is not None:
+            seen.append(key)
+            state[site.BREAKS[key][0]] = True
+            self.assertLessEqual(sum(site.BREAKS[k][2] for k in site.applied(state)), site.MAX_SELECTOR_BREAKS)
+        self.assertEqual(seen[-1], "login")
+        self.assertIn("decoys", seen)
+        self.assertEqual(sum(site.BREAKS[k][2] for k in seen), site.MAX_SELECTOR_BREAKS)
+        self.assertEqual(len(seen), len(set(seen)))
+
+    def test_the_selector_cap_is_what_keeps_a_spare_agent_run(self):
+        from services.backend.sandbox import records_site as site
+        state = site.fresh_state()
+        state["chaos"] = state["input"] = True
+        for seed in range(50):
+            self.assertIn(site.next_break(state, random.Random(seed)), {"decoys"})
 
 
 class WriteGuardTests(unittest.TestCase):
@@ -172,10 +196,9 @@ class SandboxSiteTests(unittest.TestCase):
         self.expect(page.locator("#last-saved")).not_to_contain_text("No changes yet")
         self.assertEqual(self.state()["last_saved"]["value"], "runner-value")
 
-    def test_toggle_persists_and_hard_decoys_do_not_write(self):
+    def test_break_button_persists_and_hard_decoys_do_not_write(self):
         page = self.page()
-        page.locator("#chaos-toggle").click()
-        self.expect(page.locator("#chaos-toggle")).to_have_attribute("aria-pressed", "true")
+        self.post("/chaos", {"break": "button"})
         self.expect(page.locator("#save-btn")).to_have_count(0)
         self.expect(page.locator('#chaos-modal button[data-action="save"]')).to_have_count(1)
         self.assertTrue(self.state()["chaos"])
@@ -187,7 +210,7 @@ class SandboxSiteTests(unittest.TestCase):
         page.get_by_role("button", name="Save draft", exact=True).click()
         page.get_by_role("button", name="Clear form", exact=True).click()
         self.assertEqual(self.state()["writes"], 0)
-        page.locator("#chaos-toggle").click()
+        self.post("/chaos", {"enabled": False, "hard": True, "read": True})
         self.expect(page.locator("#save-btn")).to_be_visible()
         self.expect(page.locator("#chaos-modal")).to_have_count(0)
         self.assertEqual({key: self.state()[key] for key in ("chaos", "hard", "read")},
@@ -195,6 +218,44 @@ class SandboxSiteTests(unittest.TestCase):
         page.reload()
         self.expect(page.locator("#save-btn")).to_be_visible()
         self.expect(page.locator("#out-value")).to_have_attribute("data-testid", "result-value")
+
+    def test_the_break_button_applies_one_more_change_per_click_and_restore_undoes_them(self):
+        page = self.page()
+        self.expect(page.locator("#restore-btn")).to_be_disabled()
+        for expected in (1, 2):
+            page.locator("#break-btn").click()
+            self.expect(page.locator("#chaos-note")).to_contain_text("Last change:")
+            self.assertEqual(len(self.state()["broken"]), expected)
+        page.locator("#restore-btn").click()
+        self.expect(page.locator("#restore-btn")).to_be_disabled()
+        self.assertEqual(self.state()["broken"], [])
+        for field, selector in self.baseline["fields"].items():
+            self.expect(page.locator(selector)).to_have_count(1)
+
+    def test_a_broken_record_id_keeps_its_label_and_one_unique_attribute(self):
+        page = self.page()
+        self.post("/chaos", {"break": "input"})
+        self.expect(page.locator("#record-id")).to_have_count(0)
+        self.expect(page.get_by_role("textbox", name="Record ID", exact=True)).to_have_count(1)
+        self.expect(page.locator('input[name="record_id"]')).to_have_count(1)
+        page.locator('input[name="record_id"]').fill("SKU-1042")
+        page.locator("#record-value").fill("77.77")
+        page.get_by_role("button", name="Save record", exact=True).click()
+        self.expect(page.locator("#out-value")).to_have_text("77.77")
+        self.assertEqual(self.state()["records"]["SKU-1042"], "77.77")
+        self.post("/chaos", {"enabled": False})
+        self.expect(page.locator("#record-id")).to_have_count(1)
+
+    def test_the_login_wall_hides_the_price_form_and_reset_removes_it(self):
+        page = self.page()
+        self.post("/chaos", {"break": "login"})
+        self.expect(page.locator("#login-wall")).to_be_visible()
+        self.expect(page.locator("#record-form")).to_be_hidden()
+        self.expect(page.locator("#break-btn")).to_be_disabled()
+        self.assertEqual(page.locator("form").count(), 1)
+        self.post("/reset", {})
+        self.expect(page.locator("#login-wall")).to_have_count(0)
+        self.expect(page.locator("#record-form")).to_be_visible()
 
     def test_reset_restores_seeds_and_clears_metadata_modes_and_receipt(self):
         page = self.page()
@@ -275,9 +336,9 @@ class SandboxSiteTests(unittest.TestCase):
         page.unroute("**/state")
         self.expect(page.locator("#sync-status")).to_contain_text("Inventory connected")
         page.route("**/chaos", lambda route: route.fulfill(status=503, json={}))
-        page.locator("#chaos-toggle").click()
+        page.locator("#break-btn").click()
         self.expect(page.locator("#action-error")).to_contain_text("Could not change Chaos Mode")
-        self.expect(page.locator("#chaos-toggle")).to_be_enabled()
+        self.expect(page.locator("#break-btn")).to_be_enabled()
         page.route("**/records", lambda route: route.fulfill(status=503, json={}))
         page.locator("#record-id").fill("SKU-1042")
         page.locator("#record-value").fill("not-saved")
@@ -304,7 +365,6 @@ class SandboxSiteTests(unittest.TestCase):
                       {"enabled": False, "read": True}, {"enabled": True, "hard": True, "read": True}):
             with self.subTest(modes=modes):
                 self.post("/chaos", modes)
-                self.expect(page.locator("#chaos-toggle")).to_have_attribute("aria-pressed", str(modes["enabled"]).lower())
                 self.expect(page.locator("#out-value")).to_have_attribute("data-testid", "result-value" if modes.get("read") else "saved-value")
                 for field, selector in self.baseline["fields"].items():
                     missing = field == "save_button" and modes["enabled"] or field == "saved_value" and modes.get("read")

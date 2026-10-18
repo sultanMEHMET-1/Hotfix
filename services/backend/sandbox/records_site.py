@@ -1,15 +1,21 @@
 #!/usr/bin/env python3
-"""Local inventory desk for repeat-safe write demos, with shared Chaos Mode.
+"""Local inventory desk for repeat-safe write demos, with a click-to-break Chaos control.
 
-State is in memory. hard=true adds a search box, Save draft and Clear form decoys.
-read=true renames the saved value's test id without breaking the save. GET /state
-shows records, write count and last save; POST /reset restores the seed inventory.
+State is in memory. Each press of "Break something" applies one more change (POST /chaos
+{"next": true}): the save button moves into a dialog (chaos), the Record ID box gets a new id
+(input), the saved value's test id is renamed (read), decoy buttons and a search box appear
+(hard), and finally a sign-in wall replaces the form (login). At most two changes that break a
+selector are active at once, and the login wall comes last. POST /chaos {"break": "<name>"}
+applies one change deterministically, and the original {"enabled", "hard", "read"} body still
+sets the flags directly. GET /state shows records, write count, last save and the active
+changes; POST /reset restores the seed inventory and removes every change.
 """
 
 import argparse
 from datetime import datetime, timezone
 from html import escape
 import json
+import random
 import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlsplit
@@ -37,10 +43,45 @@ SEED_DETAILS = {
 def fresh_state(generation=0):
     return {"records": dict(SEEDS), "inventory": {key: dict(value) for key, value in SEED_DETAILS.items()},
             "writes": 0, "last_saved": None, "chaos": False, "hard": False, "read": False,
-            "audit": [], "supplier_note": None, "reset_generation": generation}
+            "input": False, "login": False, "last_break": None, "audit": [], "supplier_note": None, "reset_generation": generation}
 
 
 STATE = fresh_state()
+
+# key: (state flag, presenter-facing description, whether it breaks a selector)
+BREAKS = {
+    "button": ("chaos", "The save button moved into a dialog and lost its id.", True),
+    "input": ("input", "The Record ID box was given a new id.", True),
+    "read": ("read", "The saved value's test id was renamed.", True),
+    "decoys": ("hard", "Decoy buttons and a search box appeared.", False),
+    "login": ("login", "A sign-in wall replaced the form.", False),
+}
+MAX_SELECTOR_BREAKS = 2  # a heal fixes one field per agent run and runs at most three, so keep a spare
+
+
+def applied(state):
+    return [key for key, (flag, _, _) in BREAKS.items() if state[flag]]
+
+
+def next_break(state, rng):
+    """The next change a click applies: a random heal-able one, then the sign-in wall, then nothing."""
+    active = applied(state)
+    pool = [key for key in ("button", "input", "read", "decoys") if key not in active]
+    if sum(BREAKS[key][2] for key in active) >= MAX_SELECTOR_BREAKS:
+        pool = [key for key in pool if not BREAKS[key][2]]
+    if pool:
+        return rng.choice(pool)
+    return None if "login" in active else "login"
+
+
+def describe(state):
+    last = state["last_break"]
+    return {"key": last, "message": BREAKS[last][1]} if last in BREAKS and state[BREAKS[last][0]] else None
+
+
+def chaos_reply(state):
+    return {"enabled": state["chaos"], "hard": state["hard"], "read": state["read"], "input": state["input"],
+            "login": state["login"], "broken": applied(state), "last": describe(state), "exhausted": state["login"]}
 
 STYLE = """
 :root { color-scheme: light; font-family: Arial, sans-serif; color: #292929; background: #d4d0c8; font-size: 14px; }
@@ -48,11 +89,12 @@ body { margin: 0; } * { box-sizing: border-box; }
 header { padding: 12px 18px; background: #243b53; color: white; border-bottom: 4px solid #152536; }
 header strong { font-size: 18px; } header p { margin: 6px 0 0; color: #e0e7ee; font-size: 13px; }
 nav { display: flex; align-items: center; gap: 18px; padding: 7px 18px; border-bottom: 2px groove #eee; background: #d4d0c8; }
-nav a { color: #243b53; text-underline-offset: 3px; } nav button { margin-left: auto; }
+nav a { color: #243b53; text-underline-offset: 3px; } #chaos-note { margin-left: auto; color: #555; font-size: 13px; }
 button { padding: 5px 12px; border: 2px outset #eee; border-radius: 0; background: #d4d0c8; cursor: pointer; font: inherit; }
 button:hover { filter: brightness(.92); } button:disabled { opacity: .65; cursor: wait; }
 :focus-visible { outline: 3px solid #b05c00; outline-offset: 3px; } ::selection { background: #f2d28c; color: #292929; }
-#chaos-toggle { color: white; background: #9e2929; border-color: #742020; font-weight: bold; }
+#break-btn { color: white; background: #9e2929; border-color: #742020; font-weight: bold; }
+#login-wall { padding: 12px; border: 2px solid #8b1e1e; background: #fff1f1; } #login-wall h3 { margin: 0 0 6px; }
 main { max-width: 1160px; margin: 18px auto; padding: 0 22px; }
 h1 { margin: 0 0 8px; font: bold 24px Arial, sans-serif; } h2 { margin: 0 0 10px; font: bold 16px Arial, sans-serif; padding: 7px; background: #243b53; color: white; }
 .intro { margin: 0 0 22px; line-height: 1.5; } .layout { display: grid; grid-template-columns: 340px 1fr; gap: 14px; align-items: start; }
@@ -95,6 +137,10 @@ iframe { display: block; width: 100%; height: 235px; border: 0; } .embedded { pa
 @media (max-width: 860px) { .layout, .auxiliary { grid-template-columns: 1fr; } }
 """
 
+LOGIN = ('<div id="login-wall" role="alert"><h3>Session expired</h3><p>Sign in to continue editing records.</p>'
+         '<label for="login-user">Username</label><input id="login-user" autocomplete="off">'
+         '<label for="login-pass">Password</label><input id="login-pass" type="password" autocomplete="off">'
+         '<button id="login-submit" type="button">Sign in</button></div>')
 SEARCH = '<input aria-label="Search records" placeholder="Search records">'
 DECOYS = '<button type="button" data-action="draft">Save draft</button><button type="button" id="clear-btn">Clear form</button>'
 FORM = """<form id="record-form">
@@ -105,7 +151,8 @@ FORM = """<form id="record-form">
 </form>"""
 SCRIPT = """
 (() => {
-  const form = document.querySelector('#record-form'), toggle = document.querySelector('#chaos-toggle');
+  const form = document.querySelector('#record-form'), toggle = document.querySelector('#break-btn');
+  const restore = document.querySelector('#restore-btn');
   const button = document.querySelector('#save-btn'), result = document.querySelector('#result');
   const error = document.querySelector('#action-error'), search = document.querySelector('#inventory-filter');
   const category = document.querySelector('#category-filter'), rendered = new Map();
@@ -118,11 +165,17 @@ SCRIPT = """
     draw(); rendered.set(key, signature);
   }
   function applyModes(next) {
-    modes = {chaos: next.chaos, hard: next.hard, read: next.read};
+    modes = {chaos: next.chaos, hard: next.hard, read: next.read, input: next.input, login: next.login};
     update('modes', modes, () => {
       document.body.classList.toggle('chaos', modes.chaos);
-      text('chaos-toggle', `Chaos Mode: ${modes.chaos ? 'ON' : 'OFF'}`);
-      toggle.setAttribute('aria-pressed', String(modes.chaos));
+      text('break-btn', modes.login ? 'Nothing left to break' : 'Break something');
+      syncButtons();
+      const field = form.elements.record_id, label = form.querySelector('label');
+      field.id = modes.input ? 'rid' : 'record-id'; label.htmlFor = field.id;
+      let wall = document.querySelector('#login-wall');
+      if (modes.login && !wall) {
+        form.hidden = true; form.insertAdjacentHTML('afterend', document.getElementById('login-template').innerHTML);
+      } else if (!modes.login && wall) { wall.remove(); form.hidden = false; }
       document.querySelector('#out-value').setAttribute('data-testid', modes.read ? 'result-value' : 'saved-value');
       for (const [slot, template] of [['search-slot', 'search-template'], ['decoys', 'decoy-template']]) {
         const container = document.getElementById(slot);
@@ -140,6 +193,8 @@ SCRIPT = """
       }
     });
   }
+  function anyBroken() { return modes.chaos || modes.hard || modes.read || modes.input || modes.login; }
+  function syncButtons() { toggle.disabled = pending || modes.login; restore.disabled = pending || !anyBroken(); }
   function stock(quantity) { return quantity === 0 ? 'Out' : quantity < 5 ? 'Low' : 'In stock'; }
   function matching(record, details) { return `${record} ${details.name}`.toLowerCase().includes(search.value.toLowerCase()); }
   function rows() {
@@ -183,6 +238,7 @@ SCRIPT = """
   }
   function draw() {
     applyModes(state); inventory();
+    text('chaos-note', state.last ? `Last change: ${state.last.message}` : '');
     update('audit', state.audit, () => {
       const nodes = state.audit.map(change => {
         const row = document.createElement('tr');
@@ -237,25 +293,27 @@ SCRIPT = """
   });
   document.querySelector('#previous-page').addEventListener('click', () => { pageNumber--; inventory(); });
   document.querySelector('#next-page').addEventListener('click', () => { pageNumber++; inventory(); });
-  toggle.addEventListener('click', async () => {
+  async function changeChaos(body) {
     if (pending) return;
-    generation++; pending = true; toggle.disabled = true; button.disabled = true; error.textContent = '';
+    generation++; pending = true; syncButtons(); button.disabled = true; error.textContent = '';
     try {
-      const next = await request('/chaos', {enabled: !modes.chaos, hard: modes.hard, read: modes.read});
-      applyModes({chaos: next.enabled, hard: next.hard, read: next.read});
+      const next = await request('/chaos', body);
+      applyModes({chaos: next.enabled, hard: next.hard, read: next.read, input: next.input, login: next.login});
     } catch (_) { error.textContent = 'Could not change Chaos Mode. Try again.'; }
-    finally { pending = false; toggle.disabled = false; button.disabled = false; }
+    finally { pending = false; syncButtons(); button.disabled = false; }
     await refresh();
-  });
+  }
+  toggle.addEventListener('click', () => changeChaos({next: true}));
+  restore.addEventListener('click', () => changeChaos({enabled: false, hard: false, read: false, input: false, login: false}));
   form.addEventListener('submit', async (event) => {
     event.preventDefault();
     if (pending) return;
-    generation++; pending = true; result.hidden = true; button.disabled = true; toggle.disabled = true; error.textContent = '';
+    generation++; pending = true; result.hidden = true; button.disabled = true; syncButtons(); error.textContent = '';
     try {
-      const saved = await request('/records', {record_id: document.querySelector('#record-id').value, value: document.querySelector('#record-value').value});
+      const saved = await request('/records', {record_id: form.elements.record_id.value, value: document.querySelector('#record-value').value});
       text('out-record', saved.record_id); text('out-value', saved.value); result.hidden = false;
     } catch (_) { error.textContent = 'Record was not confirmed saved. Check the inventory and try again.'; }
-    finally { pending = false; button.disabled = false; toggle.disabled = false; }
+    finally { pending = false; button.disabled = false; syncButtons(); }
     await refresh();
   });
   async function poll() { await refresh(); setTimeout(poll, 1000); }
@@ -314,11 +372,12 @@ def render():
                '<tbody id="audit-body"></tbody></table></div><p id="audit-empty">No price changes recorded.</p></section>'
                '<section class="paper"><h2>Supplier notes</h2><iframe id="supplier-note-frame" title="Supplier note" src="/supplier-note"></iframe></section></div>'
                '<p id="sync-status" role="status">Connecting to inventory...</p>')
-    modes = json.dumps({key: STATE[key] for key in ("chaos", "hard", "read")})
-    scripts = (f'<template id="search-template">{SEARCH}</template><template id="decoy-template">{DECOYS}</template>'
+    modes = json.dumps({key: STATE[key] for key in ("chaos", "hard", "read", "input", "login")})
+    scripts = (f'<template id="search-template">{SEARCH}</template><template id="decoy-template">{DECOYS}</template><template id="login-template">{LOGIN}</template>'
                f'<script>{SCRIPT.replace("__MODES__", modes)}</script>')
     page = shell("Inventory", content, scripts)
-    return page.replace('</nav>', '<button id="chaos-toggle" type="button" aria-pressed="false">Chaos Mode: OFF</button></nav>', 1)
+    return page.replace('</nav>', '<span id="chaos-note" role="status"></span><button id="break-btn" type="button">Break something</button>'
+                       '<button id="restore-btn" type="button" disabled>Restore site</button></nav>', 1)
 
 
 STATIC_PAGES = {
@@ -363,7 +422,7 @@ class Handler(BaseHTTPRequestHandler):
             if path in {"/", "/records"}:
                 return self.reply(200, render(), "text/html")
             if path == "/state":
-                return self.reply(200, STATE)
+                return self.reply(200, {**STATE, "broken": applied(STATE), "last": describe(STATE)})
             if path == "/supplier-note":
                 return self.reply(200, note_page(), "text/html")
             if path[1:] in STATIC_PAGES:
@@ -393,10 +452,17 @@ class Handler(BaseHTTPRequestHandler):
                     STATE["supplier_note"] = {"supplier": supplier, "note": note}
                     return self.reply(200, STATE["supplier_note"])
                 if path == "/chaos":
-                    STATE["chaos"] = bool(data["enabled"])
-                    STATE["hard"] = bool(data.get("hard", False))
-                    STATE["read"] = bool(data.get("read", False))
-                    return self.reply(200, {"enabled": STATE["chaos"], "hard": STATE["hard"], "read": STATE["read"]})
+                    if "break" in data or data.get("next"):
+                        key = data["break"] if "break" in data else next_break(STATE, random)
+                        if key is not None:
+                            STATE[BREAKS[key][0]] = True
+                            STATE["last_break"] = key
+                    else:
+                        STATE["chaos"] = bool(data["enabled"])
+                        for key in ("hard", "read", "input", "login"):
+                            STATE[key] = bool(data.get(key, False))
+                        STATE["last_break"] = None
+                    return self.reply(200, chaos_reply(STATE))
                 if path == "/reset":
                     generation = STATE["reset_generation"] + 1
                     STATE.clear()

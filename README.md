@@ -85,12 +85,17 @@ For the write demo, start the inventory site and open `http://127.0.0.1:3100/rec
    the runner uses a separate browser. A save reveals its row even under a filter or on another page, and
    adds an entry to Recent changes. You can also save directly in the site's price form. Supplier notes
    have a separate form and do not change prices.
-2. Click **Chaos Mode** on the inventory page. The layout rearranges and the save button moves into an
-   authorization dialog. Trigger the workflow again to demonstrate the repair, then once more for the fast path.
+2. Click **Break something** on the inventory page. Each click applies one more change, and a note beside the
+   button says what changed: the save button moves into an authorization dialog, the Record ID box gets a new
+   id, the saved value's test id is renamed, or decoy buttons and a search box appear. At most two changes
+   that break a selector are active at once, so a repair never needs more than two agent runs. Click again and
+   a sign-in wall replaces the form: the agent must stop and fail honestly, with no records and no writes.
+   Trigger the workflow after each break to demonstrate the repair (one change, then two together), then once
+   more for the fast path. **Restore site** removes every change.
 3. The agent, replay and canary each save during a successful heal. Repeated sets are safe, and the
    `canary-record` row is visible too; "Last saved" may refer to it. Write workflows run only on local or
    allow-listed hosts.
-4. Before repeating, reset `record-update` selectors in the dashboard and turn Chaos Mode off on the site.
+4. Before repeating, reset `record-update` selectors in the dashboard and click **Restore site** on the page.
    To restore all twelve seed rows as well, `POST /reset` to the site on port 3100. That also clears chaos and
    writes, audit, supplier note, filters and last-save metadata. Reset the site between write demos;
    selector reset remains a separate backend operation.
