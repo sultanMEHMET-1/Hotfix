@@ -301,6 +301,12 @@ class Recovery:
                         outcome.agent_duration_ms = totals["agent_duration_ms"]
                     sentry_sdk.set_context("recovery.measurements", report)
                     span.set_data("recovery.measurements", report)
+                    # Flat numeric attributes so a Sentry dashboard can chart them. Reliable values only.
+                    for name, key in (("cost_usd", "cost_usd"), ("agent_duration_ms", "agent_duration_ms"),
+                                      ("total_tokens", "total_tokens")):
+                        if totals.get(key + "_complete") and key in totals:
+                            span.set_data(f"recovery.{name}", totals[key])
+                    span.set_data("recovery.invocations", len(metrics))
                     sentry_sdk.set_tag("heal_success", committed)
                     span.set_status("ok" if outcome.error is None else "internal_error")
                     tokens = str(totals.get("total_tokens", "unknown"))
