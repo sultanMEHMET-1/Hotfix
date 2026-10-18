@@ -1,15 +1,20 @@
 """M3 cooldown, finalized repair records, measurement ownership, and operator reset."""
 
 import asyncio
+from dataclasses import replace
 import json
 import os
+from pathlib import Path
 import re
 import subprocess
+import sys
+import tempfile
 from unittest.mock import patch
 
 import httpx
 
 from services.backend.config import BackendError
+from services.backend.main import create_app
 from services.backend.runner import RunResult
 from services.backend.tests.test_m1 import failure
 from services.backend.tests.test_m2 import M2Harness
@@ -63,6 +68,8 @@ class M3Tests(M2Harness):
         self.assertEqual(len(self.recovery_files()), 1)
         self.assertEqual(second["error"], first["error"])
         self.assertNotEqual(second["trace_id"], first["trace_id"])
+        self.assertNotIn("cooldown_remaining_s", first)
+        self.assertAlmostEqual(second["cooldown_remaining_s"], 12.0)  # stored at 1000, 15 s window, now 1003
         self.assert_failed(second)
 
     async def test_different_failed_step_during_cooldown_starts_a_fresh_recovery(self):
@@ -112,7 +119,7 @@ class M3Tests(M2Harness):
 
     async def test_failed_restoration_blocks_execution_and_is_not_cached(self):
         self.app.state.diagnose = self.poison_submit()
-        with patch.object(self.app.state.store, "restore", side_effect=OSError("/secret/path unavailable")):
+        with patch.object(self.app.state.stores["sample-lookup"], "restore", side_effect=OSError("/secret/path unavailable")):
             payload = (await self.request()).json()
         self.assertEqual(payload["error"]["code"], "rollback_failed")
         self.assertNotIn("heal_records", payload)
@@ -125,7 +132,7 @@ class M3Tests(M2Harness):
     # Reset
 
     def git_commit_baseline(self):
-        for command in (["init", "-q"], ["add", "contracts/selectors.json"],
+        for command in (["init", "-q"], ["add", "contracts/selectors/sample-lookup.json"],
                         ["-c", "user.name=t", "-c", "user.email=t@t", "commit", "-qm", "baseline"]):
             subprocess.run(["git", *command], cwd=self.root, check=True, capture_output=True)
 
@@ -265,6 +272,113 @@ class M3Tests(M2Harness):
         self.assertEqual(self.outcomes(waiter), self.outcomes(owner))
         self.assertTrue(all(r[1] == "committed" for r in self.outcomes(waiter)))
 
+    # Review fixes
+
+    async def test_failure_at_the_navigation_step_does_not_start_a_recovery(self):
+        payload = (await self.request(case="navigation")).json()
+        self.assertEqual(payload["status"], "failed")
+        self.assertEqual(payload["error"]["code"], "runner_failed")
+        self.assertIn("not a selector", payload["error"]["message"])
+        self.assertFalse(payload["recovery_attempted"])
+        self.assertEqual(self.calls, [])
+        self.assertEqual(self.recovery_files(), [])
+        self.assertEqual(self.app.state.recovery.cooldown, {})
+
+    def test_runner_python_defaults_to_the_project_venv_when_it_exists(self):
+        from services.backend.config import default_runner_python
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            self.assertEqual(default_runner_python(root), sys.executable)
+            (root / ".venv/bin").mkdir(parents=True)
+            (root / ".venv/bin/python").write_text("")
+            self.assertEqual(default_runner_python(root), str(root / ".venv/bin/python"))
+
+    async def test_operator_endpoints_refuse_forwarded_requests(self):
+        for path, method in (("/api/v1/status", "get"), ("/api/v1/admin/reset", "post")):
+            plain = await getattr(self.client, method)(path)
+            self.assertNotEqual(plain.status_code, 403, path)
+            forwarded = await getattr(self.client, method)(path, headers={"X-Forwarded-For": "203.0.113.9"})
+            self.assertEqual(forwarded.status_code, 403, path)
+
+    async def test_a_logged_exception_still_reaches_sentry(self):
+        """With log lines no longer becoming issues, log.exception sites must capture explicitly."""
+        import sentry_sdk
+        from sentry_sdk.transport import Transport
+        envelopes = []
+
+        class Memory(Transport):
+            def capture_envelope(self, envelope):
+                envelopes.append(envelope)
+        from sentry_sdk.integrations.logging import LoggingIntegration
+        # Same logging settings as production, where ERROR log lines do not become events by themselves.
+        sentry_sdk.init(dsn="https://public@example.invalid/1", transport=Memory(), traces_sample_rate=0,
+                        integrations=[LoggingIntegration(event_level=None)])
+        self.addCleanup(sentry_sdk.init)
+        with tempfile.TemporaryDirectory() as empty, patch("services.backend.main.sentry_sdk.init"):
+            app = create_app(replace(self.settings, root=Path(empty)))  # no contract schemas: startup fails
+            async with app.router.lifespan_context(app):
+                self.assertIsNotNone(app.state.configuration_error)
+        sentry_sdk.flush()
+        events = [item.payload.json for envelope in envelopes for item in envelope.items if item.headers.get("type") == "event"]
+        self.assertTrue(any("exception" in event for event in events), events)
+
+    async def test_an_agent_that_gives_up_early_is_retried_within_the_cap(self):
+        calls = []
+
+        async def gives_up_once(settings, workflow, params, failed, **kwargs):
+            calls.append(failed.failed_step)
+            if len(calls) == 1:
+                raise BackendError("agent_blocked", "Browser Use could not complete the task")
+            return await self.diagnose(settings, workflow, params, failed, **kwargs)
+        self.app.state.diagnose = gives_up_once
+        payload = (await self.request()).json()
+        self.assertEqual(payload["status"], "healed", payload)
+        self.assertEqual(calls, ["input_reference", "input_reference", "submit_button"])
+
+    async def test_a_real_login_wall_spends_the_cap_and_fails_without_records(self):
+        async def always_blocked(settings, workflow, params, failed, **kwargs):
+            self.calls.append(failed.failed_step)
+            raise BackendError("agent_blocked", "Browser Use could not complete the task")
+        self.app.state.diagnose = always_blocked
+        payload = (await self.request()).json()
+        self.assertEqual((payload["status"], payload["error"]["code"]), ("failed", "agent_blocked"))
+        self.assertEqual(len(self.calls), 3)
+        self.assertNotIn("heal_records", payload)
+        self.assertEqual(self.selectors(), self.baseline)
+
+    async def test_recovery_summary_span_carries_flat_numbers_for_dashboards(self):
+        """The numbers must be on a child span: Sentry does not index a transaction's own root span data."""
+        import sentry_sdk
+        from sentry_sdk.integrations.logging import LoggingIntegration
+        from sentry_sdk.transport import Transport
+        envelopes = []
+
+        class Memory(Transport):
+            def capture_envelope(self, envelope):
+                envelopes.append(envelope)
+        sentry_sdk.init(dsn="https://public@example.invalid/1", transport=Memory(), traces_sample_rate=1.0,
+                        integrations=[LoggingIntegration(event_level=None)])
+        self.addCleanup(sentry_sdk.init)
+        self.app.state.diagnose = self.diagnose
+        with patch("services.backend.main.sentry_sdk.init"):
+            self.assertEqual((await self.request()).json()["status"], "healed")
+        sentry_sdk.flush()
+        transactions = [item.payload.json for envelope in envelopes for item in envelope.items
+                        if item.headers.get("type") == "transaction"]
+        spans = [span for transaction in transactions for span in transaction.get("spans", [])
+                 if span.get("op") == "healer.summary"]
+        self.assertEqual(len(spans), 1, [t.get("transaction") for t in transactions])
+        data = spans[0]["data"]
+        self.assertAlmostEqual(data["recovery.cost_usd"], 0.002)
+        self.assertEqual((data["recovery.invocations"], data["recovery.total_tokens"], data["recovery.success"]), (2, 24, True))
+
+    def test_runner_phase_timings_are_parsed_and_malformed_ones_ignored(self):
+        from services.backend.runner import parse_timings
+        good = 'noise\nworkflow_latency_ms=1.0\nrunner_timings_ms={"launch": 250.5, "goto": 30, "total": 400.0, "bad": "x"}\n'
+        self.assertEqual(parse_timings(good), {"launch": 250.5, "goto": 30.0, "total": 400.0})
+        self.assertEqual(parse_timings("runner_timings_ms={not json"), {})
+        self.assertEqual(parse_timings("no timings here"), {})
+
     # Safety
 
     async def test_error_messages_are_safe_to_show(self):
@@ -276,10 +390,10 @@ class M3Tests(M2Harness):
             self.app.state.diagnose = self.poison_submit()
             scenarios.append((await self.request()).json())
             self.app.state.recovery.cooldown.clear()
-            async with self.app.state.store.lock(exclusive=True):
+            async with self.app.state.stores["sample-lookup"].lock(exclusive=True):
                 scenarios.append((await self.request()).json())
             self.app.state.recovery.cooldown.clear()
-            with patch.object(self.app.state.store, "restore", side_effect=OSError("/etc/secret-key-123")):
+            with patch.object(self.app.state.stores["sample-lookup"], "restore", side_effect=OSError("/etc/secret-key-123")):
                 scenarios.append((await self.request()).json())
         codes = [payload["error"]["code"] for payload in scenarios]
         self.assertEqual(codes, ["ambiguous_element", "canary_failed", "lock_timeout", "rollback_failed"])

@@ -14,7 +14,7 @@ vi.mock("../config", () => ({
 import { FAST_DELAY_MS, HEAL_DELAY_MS } from "../api/mocks";
 import successFixture from "@contracts/fixtures/workflow_success.json";
 import healedFixture from "@contracts/fixtures/workflow_healed.json";
-import { DEFAULT_BENCHMARKS, HISTORY_LIMIT, useWorkflowRun } from "../hooks/useWorkflowRun";
+import { HISTORY_LIMIT, useWorkflowRun } from "../hooks/useWorkflowRun";
 
 const advance = (ms: number) =>
   act(async () => {
@@ -148,7 +148,8 @@ describe("useWorkflowRun (live mode)", () => {
       );
     });
     expect(result.current.phase).toBe("done");
-    expect(result.current.benchmarks).toEqual({ ...DEFAULT_BENCHMARKS, healMs: 9000, healCost: 0.05 });
+    // Live mode never invents the missing figure: no real fast run yet means n/a, not the fixture's 125 ms.
+    expect(result.current.benchmarks).toEqual({ fastMs: null, fastCost: null, healMs: 9000, healCost: 0.05 });
   });
 
   it("reports errors", async () => {

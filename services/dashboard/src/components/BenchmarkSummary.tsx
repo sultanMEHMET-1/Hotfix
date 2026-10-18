@@ -3,7 +3,8 @@ import { formatMsParts, formatUsd } from "../lib/format";
 import Reveal from "./Reveal";
 
 export default function BenchmarkSummary({ benchmarks }: { benchmarks: Benchmarks }) {
-  const ratio = benchmarks.fastMs > 0 ? benchmarks.healMs / benchmarks.fastMs : null;
+  const ratio =
+    benchmarks.fastMs !== null && benchmarks.healMs !== null && benchmarks.fastMs > 0 ? benchmarks.healMs / benchmarks.fastMs : null;
 
   return (
     <Reveal>
@@ -25,8 +26,8 @@ export default function BenchmarkSummary({ benchmarks }: { benchmarks: Benchmark
 
 const TONE_DOT: Record<"success" | "warning", string> = { success: "bg-success", warning: "bg-warning" };
 
-function Stat({ label, ms, tone }: { label: string; ms: number; tone: "success" | "warning" }) {
-  const { value, unit } = formatMsParts(ms);
+function Stat({ label, ms, tone }: { label: string; ms: number | null; tone: "success" | "warning" }) {
+  const { value, unit } = ms === null ? { value: "n/a", unit: "" } : formatMsParts(ms);
   return (
     <div>
       <div className="flex items-baseline gap-1.5">

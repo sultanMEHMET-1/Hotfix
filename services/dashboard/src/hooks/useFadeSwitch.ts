@@ -11,7 +11,10 @@ export function useFadeSwitch<T>(value: T): { display: T; visible: boolean } {
   const [visible, setVisible] = useState(true);
 
   useEffect(() => {
-    if (value === display) return;
+    if (value === display) {
+      setVisible(true); // switched away and back mid-fade: the pending timer was cleared, so restore it
+      return;
+    }
     setVisible(false);
     const timer = setTimeout(() => {
       setDisplay(value);

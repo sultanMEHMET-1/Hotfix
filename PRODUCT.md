@@ -12,7 +12,7 @@ React 18 + Vite + TypeScript + Tailwind (existing codebase: `services/dashboard/
 
 ## Users
 
-Primary: a presenter driving a live demo (pitch, investor meeting, conference talk) with an audience watching a shared/projected screen. Secondary (inferred, not confirmed): an engineer checking the dashboard during day-to-day development of the self-healing workflow. *Inferred from the brief's emphasis on "must read well projected on a demo screen: big numbers, nothing tiny that matters" — not separately confirmed with the user.*
+Primary: a presenter driving a live demo (pitch, investor meeting, conference talk) with an audience watching a shared/projected screen. Secondary (inferred, not confirmed): an engineer checking the dashboard during day-to-day development of the self-healing workflow. *Inferred from the brief's emphasis on "must read well projected on a demo screen: big numbers, nothing tiny that matters" - not separately confirmed with the user.*
 
 ## Product Purpose
 
@@ -20,7 +20,7 @@ Mender runs a browser workflow (a permit-application form) against cached CSS se
 
 ## Positioning
 
-The mechanism a competing "flaky test" or "self-healing selector" product would not share: deterministic Playwright execution stays the default fast path (cached selectors, near-zero cost), and the agent is only invoked on failure, with every agent-made change going through a transactional heal — committed, rolled back, or rejected — never silently applied. The UI's job is to make that commit/rollback distinction visible and trustworthy, not just "AI fixed it."
+The mechanism a competing "flaky test" or "self-healing selector" product would not share: deterministic Playwright execution stays the default fast path (cached selectors, near-zero cost), and the agent is only invoked on failure, with every agent-made change going through a transactional heal - committed, rolled back, or rejected - never silently applied. The UI's job is to make that commit/rollback distinction visible and trustworthy, not just "AI fixed it."
 
 ## Operating Context
 
@@ -35,24 +35,24 @@ The mechanism a competing "flaky test" or "self-healing selector" product would 
 - Per-field heal evidence (`HealRecord`) must show old vs. new selector, verification outcome (`committed` | `rolled_back` | `rejected`), version before/after, and the agent's reasoning/evidence trail.
 - Cost (`agent_cost_usd`) can be legitimately absent/unknown and must never be rendered as `$0.00` when unreported.
 - Must work at desktop (1280px demo/projector width) and mobile (390px) breakpoints, plus one dark variant.
-- Do not touch `/contracts`, `/services/backend`, `/services/runner`, or `/services/portal` — this surface is UI-only.
+- Do not touch `/contracts`, `/services/backend`, `/services/runner`, or `/services/portal` - this surface is UI-only.
 
 ## Brand Commitments
 
-Product name "Mender." No existing logo, brand guideline doc, or locked palette beyond what the prior design pass chose (vehicle-dashboard mood, amber for the "healing" state) — treated as the current committed direction per the user's instruction to work from the existing Paper file, not restart it.
+Product name "Mender." No existing logo, brand guideline doc, or locked palette beyond what the prior design pass chose (vehicle-dashboard mood, amber for the "healing" state) - treated as the current committed direction per the user's instruction to work from the existing Paper file, not restart it.
 
 ## Evidence on Hand
 
-- `services/dashboard/design/PAPER_PROMPT.md` — the original design brief (frames, regions, realistic placeholder values, export requirements).
-- `contracts/fixtures/workflow_success.json`, `workflow_healed.json`, `workflow_rolled_back.json` — real example API responses.
+- `services/dashboard/design/PAPER_PROMPT.md` - the original design brief (frames, regions, realistic placeholder values, export requirements).
+- `contracts/fixtures/workflow_success.json`, `workflow_healed.json`, `workflow_rolled_back.json` - real example API responses.
 - An existing Paper file, "Mender Dashboard," with 8 built frames (Desktop Idle / Fast Path / Healing / Healed / Rolled back, Mobile Healed, Desktop Dark Healed, Components) and a prior export already committed to `services/dashboard/design/{exports,screens}/`, `tokens.json`, `NOTES.md`.
-- No real user research, customer logos, testimonials, or pricing exist for this surface — none should be fabricated.
+- No real user research, customer logos, testimonials, or pricing exist for this surface - none should be fabricated.
 
 ## Product Principles
 
-1. Color carries meaning only (green = fast/healthy, amber = healing-in-progress, red = broken/rolled-back) — never decorative.
+1. Color carries meaning only (green = fast/healthy, amber = healing-in-progress, red = broken/rolled-back) - never decorative.
 2. The commit/rollback distinction in the Visual Diff Viewer is the trust-building centerpiece of the product and must never look ambiguous (a rolled-back "healed" selector must look visibly *not applied*).
-3. Big numbers are the hero (execution time, cost) because the whole pitch is "cheap+fast vs. expensive+self-healing" — nothing load-bearing should be small text on a projector.
+3. Big numbers are the hero (execution time, cost) because the whole pitch is "cheap+fast vs. expensive+self-healing" - nothing load-bearing should be small text on a projector.
 4. Never fabricate or soften an "unknown" cost/value; an unreported number is a distinct state, not a zero.
 5. The dashboard is a UI-only surface: product truth and API shape are owned by `/contracts` and must not be reinvented here.
 

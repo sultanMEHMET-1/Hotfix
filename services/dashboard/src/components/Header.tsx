@@ -1,20 +1,20 @@
-import { WORKFLOW_ID } from "../api/client";
 import type { Theme } from "../hooks/useTheme";
 
 export interface HeaderProps {
+  workflowId: string;
   mocksOn: boolean;
   onToggleMocks: () => void;
   theme: Theme;
   onToggleTheme: () => void;
 }
 
-export default function Header({ mocksOn, onToggleMocks, theme, onToggleTheme }: HeaderProps) {
+export default function Header({ workflowId, mocksOn, onToggleMocks, theme, onToggleTheme }: HeaderProps) {
   const isDark = theme === "dark";
   return (
     <header className="flex flex-wrap items-start justify-between gap-3 pt-6">
       <div className="animate-fade-up">
         <div className="text-xs tracking-wide text-ink-faint">
-          Mender&nbsp;&nbsp;/&nbsp;&nbsp;<span className="font-mono">{WORKFLOW_ID}</span>&nbsp;&nbsp;/
+          Mender&nbsp;&nbsp;/&nbsp;&nbsp;<span className="font-mono">{workflowId}</span>&nbsp;&nbsp;/
         </div>
         <h1 className="mt-1 text-xl font-semibold tracking-tight text-ink sm:text-2xl">Workflow overview</h1>
       </div>

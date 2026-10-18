@@ -38,6 +38,18 @@ async def stop_process(process, timeout=5):
         raise BackendError("runner_cleanup_failed", "Runner process could not be reaped") from exc
 
 
+def parse_timings(stderr: str):
+    """Phase timings the runner prints as `runner_timings_ms={"launch": ..}`; anything malformed is ignored."""
+    for line in reversed(stderr.splitlines()):
+        if line.startswith("runner_timings_ms="):
+            try:
+                value = json.loads(line.split("=", 1)[1])
+            except ValueError:
+                return {}
+            return {k: float(v) for k, v in value.items() if isinstance(v, (int, float)) and k.isidentifier()}
+    return {}
+
+
 class Runner:
     def __init__(self, settings: Settings):
         self.settings = settings
@@ -49,7 +61,7 @@ class Runner:
         run_id = str(uuid4())
         args = [self.settings.runner_python, str(self.settings.script),
                 "--workflow", workflow_id, "--params", json.dumps(params, allow_nan=False),
-                "--run-id", run_id]
+                "--run-id", run_id, "--contracts", str(self.settings.root / "contracts")]
         if self.settings.propagate_trace:
             for flag, value in (("--sentry-trace", sentry_sdk.get_traceparent()),
                                 ("--baggage", sentry_sdk.get_baggage())):
@@ -91,6 +103,8 @@ class Runner:
             span.set_data("exit_code", process.returncode)
             # Diagnostics belong to the trace, never the stdout JSON response.
             span.set_data("stderr", stderr.decode(errors="replace")[-4000:])
+            for phase, milliseconds in parse_timings(stderr.decode(errors="replace")).items():
+                span.set_data(f"runner.{phase}_ms", milliseconds)
             if process.returncode == 0:
                 try:
                     data = json.loads(stdout, parse_constant=reject_constant)

@@ -105,7 +105,7 @@
           </div>
           <div className="flex items-baseline gap-[10px]">
             <div className="font-mono text-[13px] inline-block font-[500] leading-[16px] text-ink">
-              Agent Run — not reported
+              Agent Run - not reported
             </div>
             <div className="font-sans text-2xl inline-block font-[600] italic leading-[48px] text-ink-muted">
               Unknown
@@ -184,7 +184,7 @@
             </div>
           </div>
           <div className="font-sans text-xs inline-block leading-[16px] text-ink-muted">
-            Why: input · INPUT · Permit ID — a unique executed action matches the ordered workflow field and element label.
+            Why: input · INPUT · Permit ID - a unique executed action matches the ordered workflow field and element label.
           </div>
         </div>
         <div className="flex flex-col [width:100%] p-[16px] rounded-md gap-[10px] bg-surface border border-solid border-border">
@@ -222,7 +222,7 @@
             </div>
           </div>
           <div className="font-sans text-xs inline-block leading-[16px] text-ink-muted">
-            Why: click · BUTTON · Look up permit — a unique executed action matches the ordered workflow field and element label.
+            Why: click · BUTTON · Look up permit - a unique executed action matches the ordered workflow field and element label.
           </div>
         </div>
       </div>

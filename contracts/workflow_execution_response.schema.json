@@ -276,6 +276,19 @@
       ],
       "default": null,
       "title": "Agent Duration Ms"
+    },
+    "cooldown_remaining_s": {
+      "anyOf": [
+        {
+          "minimum": 0,
+          "type": "number"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Cooldown Remaining S"
     }
   },
   "required": [

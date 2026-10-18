@@ -22,7 +22,9 @@ from .store import atomic_json
 
 
 log = logging.getLogger("mender.backend")
-RETRYABLE = {"agent_error", "agent_timeout", "agent_no_result"}
+# A self-declared failure (agent_blocked) is an agent-level outcome too: models sometimes give up early, and a retry
+# within the three-invocation cap often succeeds. A real login wall just spends the cap and fails.
+RETRYABLE = {"agent_error", "agent_timeout", "agent_no_result", "agent_blocked"}
 # Configuration, cancellation and failed-cleanup outcomes never enter the cooldown.
 UNCACHEABLE = {"model_unconfigured", "backend_unavailable", "recovery_cancelled", "rollback_failed",
                "cleanup_timeout", "browser_cleanup_failed", "runner_cleanup_failed", "model_cleanup_failed"}
@@ -63,6 +65,11 @@ def validate_failure(workflow_id, workflow, selectors, result):
     if selectors["fields"].get(failure.failed_step) != failure.expected_selector:
         raise BackendError("stale_failure", "Failure does not match the current selector map")
     position = next((i for i, step in enumerate(workflow.steps) if step.field == failure.failed_step), None)
+    if position is None:
+        # Reads happen after every action, in output order.
+        reads = list(dict.fromkeys(output.field for output in workflow.outputs.values()))
+        if failure.failed_step in reads:
+            position = len(workflow.steps) + reads.index(failure.failed_step)
     if position is None:
         raise BackendError("unmapped_step", "Failed step is absent from ordered workflow steps")
     if urlsplit(failure.page_url)[:2] != urlsplit(selectors["target_url"])[:2]:
@@ -117,7 +124,7 @@ class Recovery:
         clock = asyncio.get_running_loop().time
         hard_deadline = started + self.settings.recovery_timeout
         deadline = hard_deadline - self.settings.cleanup_reserve
-        store, runner = self.app.state.store, self.app.state.runner
+        store, runner = self.app.state.stores[workflow_id], self.app.state.runner
         outcome = RecoveryResult()
         metrics = []
         drafts = []
@@ -153,6 +160,7 @@ class Recovery:
                         else:
                             validate_failure(workflow_id, workflow, baseline, result)
                             backup_path = store.backup(result.run_id, baseline)
+                            store.mark_inflight(backup_path, baseline["version"])
                             current = baseline
                             outcome.attempted = True
                             diagnose = self.app.state.diagnose
@@ -223,6 +231,8 @@ class Recovery:
                                         result = replay
                                         continue
                                     log.info("Deterministic replay and output schema passed", extra={"phase": "VERIFY"})
+                                    if candidate.reported and any(replay.data.get(key) != value for key, value in candidate.reported.items()):
+                                        raise BackendError("read_mismatch", "The replay read a different value than the agent reported")
                                     if workflow.canary:
                                         canary = await runner.execute(workflow_id, workflow.canary.params, output_validator, deadline=deadline)
                                         if canary.data is None or masked_output(canary.data, workflow.canary.ignore_paths) != masked_output(
@@ -264,6 +274,7 @@ class Recovery:
                             outcome.error = BackendError("rollback_failed", self.app.state.configuration_error)
                             sentry_sdk.capture_exception()
                     if not rollback_failed:
+                        store.clear_inflight()  # the map is consistent again; a failed rollback leaves the marker for startup
                         outcome.records = [HealRecord(
                             field=d["field"], diff=d["diff"], evidence=d["evidence"], version_before=d["before"],
                             verification_outcome="rejected" if d["after"] is None else ("committed" if committed else "rolled_back"),
@@ -301,6 +312,14 @@ class Recovery:
                         outcome.agent_duration_ms = totals["agent_duration_ms"]
                     sentry_sdk.set_context("recovery.measurements", report)
                     span.set_data("recovery.measurements", report)
+                    # Flat numeric attributes so a Sentry dashboard can chart them. They live on a child span because
+                    # Sentry indexes child span data for queries but not a transaction's own root span. Reliable values only.
+                    with sentry_sdk.start_span(op="healer.summary", name="Recovery summary") as summary:
+                        for name in ("cost_usd", "agent_duration_ms", "total_tokens"):
+                            if totals.get(name + "_complete") and name in totals:
+                                summary.set_data(f"recovery.{name}", totals[name])
+                        summary.set_data("recovery.invocations", len(metrics))
+                        summary.set_data("recovery.success", outcome.error is None)
                     sentry_sdk.set_tag("heal_success", committed)
                     span.set_status("ok" if outcome.error is None else "internal_error")
                     tokens = str(totals.get("total_tokens", "unknown"))
@@ -316,6 +335,7 @@ class Recovery:
                         atomic_json(self.settings.backend / "state" / f"recovery-{recovery_id}.json", report)
                     except OSError:
                         log.exception("Could not retain recovery measurements")
+                        sentry_sdk.capture_exception()
                     if (outcome.attempted and outcome.error and entry_failure
                             and outcome.error.code not in UNCACHEABLE and not self.app.state.configuration_error):
                         try:
@@ -323,6 +343,7 @@ class Recovery:
                             key = cooldown_key(entry_failure, store.read())
                         except Exception:
                             log.exception("Could not record the failure cooldown")
+                            sentry_sdk.capture_exception()
                         else:
                             self.cooldown[workflow_id] = {
                                 "key": key, "outcome": outcome, "recovery_id": recovery_id,

@@ -1,0 +1,170 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://mender.local/contracts/workflow.schema.json",
+  "$defs": {
+    "WorkflowCanary": {
+      "additionalProperties": false,
+      "description": "A known input and its known output, used to reject a repair that returns the wrong thing.",
+      "properties": {
+        "params": {
+          "additionalProperties": true,
+          "title": "Params",
+          "type": "object"
+        },
+        "expected_output": {
+          "additionalProperties": true,
+          "title": "Expected Output",
+          "type": "object"
+        },
+        "ignore_paths": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Ignore Paths",
+          "type": "array"
+        }
+      },
+      "required": [
+        "params",
+        "expected_output"
+      ],
+      "title": "WorkflowCanary",
+      "type": "object"
+    },
+    "WorkflowOutput": {
+      "additionalProperties": false,
+      "description": "How one output value is read after the actions: the element's text, or one of its attributes.",
+      "properties": {
+        "field": {
+          "pattern": "^[a-z][a-z0-9_]*$",
+          "title": "Field",
+          "type": "string"
+        },
+        "read": {
+          "pattern": "^(text|attr:[A-Za-z_][A-Za-z0-9_:.-]*)$",
+          "title": "Read",
+          "type": "string"
+        }
+      },
+      "required": [
+        "field",
+        "read"
+      ],
+      "title": "WorkflowOutput",
+      "type": "object"
+    },
+    "WorkflowStep": {
+      "additionalProperties": false,
+      "description": "One ordered action. Input steps fill the named parameter; click steps press the element.",
+      "properties": {
+        "field": {
+          "pattern": "^[a-z][a-z0-9_]*$",
+          "title": "Field",
+          "type": "string"
+        },
+        "action_type": {
+          "enum": [
+            "input",
+            "click"
+          ],
+          "title": "Action Type",
+          "type": "string"
+        },
+        "role": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Role"
+        },
+        "label": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Label"
+        },
+        "param": {
+          "anyOf": [
+            {
+              "pattern": "^[a-z][a-z0-9_]*$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Param"
+        }
+      },
+      "required": [
+        "field",
+        "action_type"
+      ],
+      "title": "WorkflowStep",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "description": "A workflow any runner can execute: ordered steps, then reads. Lives in contracts/workflows/<id>.json.",
+  "properties": {
+    "goal": {
+      "minLength": 1,
+      "title": "Goal",
+      "type": "string"
+    },
+    "steps": {
+      "items": {
+        "$ref": "#/$defs/WorkflowStep"
+      },
+      "minItems": 1,
+      "title": "Steps",
+      "type": "array"
+    },
+    "outputs": {
+      "additionalProperties": {
+        "$ref": "#/$defs/WorkflowOutput"
+      },
+      "title": "Outputs",
+      "type": "object"
+    },
+    "params_schema": {
+      "additionalProperties": true,
+      "title": "Params Schema",
+      "type": "object"
+    },
+    "output_schema": {
+      "additionalProperties": true,
+      "title": "Output Schema",
+      "type": "object"
+    },
+    "canary": {
+      "$ref": "#/$defs/WorkflowCanary"
+    },
+    "mutates": {
+      "default": false,
+      "title": "Mutates",
+      "type": "boolean"
+    }
+  },
+  "required": [
+    "goal",
+    "steps",
+    "params_schema",
+    "output_schema",
+    "canary"
+  ],
+  "title": "WorkflowDefinition",
+  "type": "object"
+}

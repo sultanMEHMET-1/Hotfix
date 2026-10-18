@@ -10,8 +10,9 @@ from .store import SelectorStore
 
 
 async def restore(path):
-    store = SelectorStore(Settings.from_env())
+    settings = Settings.from_env()
     baseline = read_json(path)
+    store = SelectorStore(settings, baseline["workflow_id"])
     store.check.validate(baseline)
     async with store.lock(exclusive=True):
         if store.read()["workflow_id"] != baseline["workflow_id"]:
@@ -20,9 +21,9 @@ async def restore(path):
     print(f"Baseline restored as selector version {version}")
 
 
-async def committed_selectors(settings):
+async def committed_selectors(settings, workflow_id):
     """The selector map in git HEAD. Runtime heals never commit, so this is the pre-chaos state."""
-    relative = settings.selectors.relative_to(settings.root).as_posix()
+    relative = settings.selectors_for(workflow_id).relative_to(settings.root).as_posix()
     process = await asyncio.create_subprocess_exec(
         "git", "show", f"HEAD:{relative}", cwd=settings.root,
         stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.DEVNULL,
@@ -35,26 +36,28 @@ async def committed_selectors(settings):
 
 async def restore_original(settings, store):
     """Restore the committed map as a new higher version. The caller holds the exclusive lock."""
-    original = await committed_selectors(settings)
+    original = await committed_selectors(settings, store.workflow_id)
     store.check.validate(original)
     if store.read()["workflow_id"] != original["workflow_id"]:
         raise ValueError("The committed selector map belongs to another workflow")
     return store.restore(original)
 
 
-async def restore_committed():
+async def restore_committed(workflows):
     settings = Settings.from_env()
-    store = SelectorStore(settings)
-    async with store.lock(exclusive=True):
-        version = await restore_original(settings, store)
-    print(f"Original selectors restored as selector version {version}")
+    for workflow_id in workflows or sorted(path.stem for path in (settings.root / "contracts/selectors").glob("*.json")):
+        store = SelectorStore(settings, workflow_id)
+        async with store.lock(exclusive=True):
+            version = await restore_original(settings, store)
+        print(f"{workflow_id}: original selectors restored as selector version {version}")
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("backup", type=Path, nargs="?", help="baseline-<run_id>.json from backend state/")
-    parser.add_argument("--original", action="store_true", help="restore the committed map (server stopped)")
+    parser.add_argument("--original", action="store_true", help="restore the committed maps (server stopped)")
+    parser.add_argument("--workflow", action="append", help="with --original: only this workflow (repeatable)")
     args = parser.parse_args()
     if args.original == (args.backup is not None):
         parser.error("give either a backup path or --original")
-    asyncio.run(restore_committed() if args.original else restore(args.backup))
+    asyncio.run(restore_committed(args.workflow) if args.original else restore(args.backup))

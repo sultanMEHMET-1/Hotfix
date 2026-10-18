@@ -4,7 +4,6 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
 import os
 from pathlib import Path
-import shutil
 import tempfile
 import threading
 import time
@@ -16,6 +15,7 @@ from fastapi.testclient import TestClient
 
 from services.backend.config import Settings
 from services.backend.main import create_app
+from services.backend.tests.support import make_root
 from services.backend.tests.test_m1 import workflow_definition
 from services.backend.terminal import configure_logging, show_result
 from services.backend.store import atomic_json
@@ -57,18 +57,14 @@ class LiveTest(unittest.TestCase):
         self.addCleanup(server.shutdown)
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
-            shutil.copytree(ROOT / "contracts", root / "contracts")
-            folder = root / "services/backend/workflows"
-            folder.mkdir(parents=True)
             definition = workflow_definition()
             definition["goal"] = "Enter the provided record_id into Record reference, click the Look up record button, and report the lookup result."
-            (folder / "sample-lookup.json").write_text(json.dumps(definition))
             selector_map = {
                 "workflow_id": "sample-lookup", "version": 1,
                 "target_url": f"http://127.0.0.1:{server.server_port}/",
                 "fields": {"input_reference": "#old-reference" if two_fields else 'input[data-testid="lookup-reference"]', "submit_button": "#old-lookup"},
             }
-            (root / "contracts/selectors.json").write_text(json.dumps(selector_map))
+            selectors_path = make_root(root, "sample-lookup", definition, selector_map)
             executable = os.getenv("MENDER_BROWSER_EXECUTABLE")
             chrome = "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
             if not executable and Path(chrome).is_file():
@@ -81,7 +77,7 @@ class LiveTest(unittest.TestCase):
                     record_id = "live-" + uuid4().hex[:8]
                     response = client.post("/api/v1/run-workflow", json={"workflow": "sample-lookup", "params": {"record_id": record_id}})
                     payload = response.json()
-                    version = json.loads((root / "contracts/selectors.json").read_text())["version"]
+                    version = json.loads(selectors_path.read_text())["version"]
                     show_result(payload, version)
                     reports = list((settings.backend / "state").glob("recovery-*.json"))
                     measurement = json.loads(reports[0].read_text()) if reports else {

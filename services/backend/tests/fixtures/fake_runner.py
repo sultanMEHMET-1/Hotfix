@@ -15,6 +15,7 @@ parser.add_argument("--params", required=True)
 parser.add_argument("--run-id", required=True)
 parser.add_argument("--sentry-trace")
 parser.add_argument("--baggage")
+parser.add_argument("--contracts")
 args = parser.parse_args()
 params = json.loads(args.params)
 case = params.get("case")
@@ -24,15 +25,18 @@ if case == "hang":
 if case == "junk":
     print("not JSON")
     sys.exit(0)
-selectors = json.loads(Path("contracts/selectors.json").read_text())
+selectors = json.loads(Path(f"contracts/selectors/{args.workflow}.json").read_text())
 field = "input_reference"
+navigation_failure = case == "navigation"
 input_selector = selectors["fields"][field]
 input_ok = input_selector in {"#reference", 'input[data-testid="lookup-reference"]'}
 if input_ok:
     field = "submit_button"
 target = selectors["fields"][field]
 correct = target == 'button[data-action="lookup"]'
-if input_ok and (correct or target == 'button[data-action="poisoned"]'):
+if navigation_failure:
+    field, target = "navigation", selectors["target_url"]
+if not navigation_failure and input_ok and (correct or target == 'button[data-action="poisoned"]'):
     if case == "invalid-replay":
         print(json.dumps({"record_id": params["record_id"], "status": "invalid"}))
         sys.exit(0)

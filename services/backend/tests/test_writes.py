@@ -4,7 +4,6 @@ from dataclasses import replace
 import json
 import os
 from pathlib import Path
-import shutil
 import socket
 import subprocess
 import sys
@@ -22,27 +21,13 @@ from services.backend.config import write_allowed
 from services.backend.healer import Candidate
 from services.backend.main import create_app
 from services.backend.tests.test_m1 import CORRECT
+from services.backend.tests.support import make_root
 from services.backend.tests.test_m2 import M2Harness
 
 ROOT = Path(__file__).resolve().parents[3]
-FIXTURES = Path(__file__).parent / "fixtures"
 SAVE = 'button[data-action="save"]'
 
-RECORD_UPDATE = {
-    "goal": "Enter the record ID and the new value, save the record exactly once, and report the saved value.",
-    "steps": [
-        {"field": "input_record_id", "action_type": "input", "role": "textbox", "label": "Record ID"},
-        {"field": "input_value", "action_type": "input", "role": "textbox", "label": "New value"},
-        {"field": "save_button", "action_type": "click", "role": "button", "label": "Save record"},
-    ],
-    "params_schema": {"type": "object", "required": ["record_id", "value"], "additionalProperties": False,
-                      "properties": {"record_id": {"type": "string"}, "value": {"type": "string"}}},
-    "output_schema": {"type": "object", "required": ["record_id", "value"], "additionalProperties": False,
-                      "properties": {"record_id": {"type": "string"}, "value": {"type": "string"}}},
-    "canary": {"params": {"record_id": "canary-record", "value": "canary-value"},
-               "expected_output": {"record_id": "canary-record", "value": "canary-value"}},
-    "mutates": True,
-}
+RECORD_UPDATE = json.loads((ROOT / "contracts/workflows/record-update.json").read_text())
 
 
 class WriteGuardTests(unittest.TestCase):
@@ -56,7 +41,7 @@ class WriteGuardTests(unittest.TestCase):
 
 class WriteRefusalTests(M2Harness):
     async def served(self, target_url, hosts=()):
-        (self.settings.backend / "workflows/sample-lookup.json").write_text(json.dumps({**self.definition, "mutates": True}))
+        (self.root / "contracts/workflows/sample-lookup.json").write_text(json.dumps({**self.definition, "mutates": True}))
         self.path.write_text(json.dumps({**self.baseline, "target_url": target_url,
                                          "fields": {"submit_button": CORRECT, "input_reference": "#reference"}}))
         app = create_app(replace(self.settings, write_hosts=hosts))
@@ -103,20 +88,17 @@ class SandboxSiteTests(unittest.TestCase):
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
         self.root = Path(self.temp.name)
-        shutil.copytree(ROOT / "contracts", self.root / "contracts")
-        (self.root / "services/backend/workflows").mkdir(parents=True)
-        (self.root / "services/backend/workflows/record-update.json").write_text(json.dumps(RECORD_UPDATE))
-        self.baseline = {"workflow_id": "record-update", "target_url": f"{self.site}/records", "version": 1,
-                         "fields": {"input_record_id": "#record-id", "input_value": "#record-value",
-                                    "save_button": "#save-btn", "saved_value": "[data-testid='saved-value']"}}
-        (self.root / "contracts/selectors.json").write_text(json.dumps(self.baseline))
+        self.baseline = {**json.loads((ROOT / "contracts/selectors/record-update.json").read_text()),
+                         "target_url": f"{self.site}/records"}
+        self.path = make_root(self.root, "record-update", RECORD_UPDATE, self.baseline)
         chrome = "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
         executable = os.getenv("MENDER_BROWSER_EXECUTABLE") or (chrome if Path(chrome).is_file() else "")
         env = patch.dict(os.environ, {"SENTRY_DSN": "", "MENDER_BROWSER_EXECUTABLE": executable, "ANONYMIZED_TELEMETRY": "false"})
         env.start()
         self.addCleanup(env.stop)
         from services.backend.config import Settings
-        self.settings = Settings(root=self.root, runner_script=FIXTURES / "sandbox_runner.py", runner_timeout=30,
+        self.settings = Settings(root=self.root, runner_script=ROOT / "services/runner/execute.py",
+                                 runner_python=str(ROOT / ".venv/bin/python"), runner_timeout=30,
                                  browser_executable=executable or None)
         self.client = TestClient(create_app(self.settings))
         self.client.__enter__()
@@ -134,7 +116,7 @@ class SandboxSiteTests(unittest.TestCase):
 
     def test_save_works_and_the_site_really_changes(self):
         payload = self.request()
-        self.assertEqual((payload["status"], payload["data"]), ("success", {"record_id": "rec-1", "value": "hello"}))
+        self.assertEqual((payload["status"], payload["data"]), ("success", {"record_id": "rec-1", "value": "hello"}), payload)
         self.assertEqual(self.state()["records"], {"rec-1": "hello"})
 
     def test_chaos_heal_repeats_the_write_idempotently(self):
@@ -152,6 +134,63 @@ class SandboxSiteTests(unittest.TestCase):
         self.assertEqual(state["records"], {"rec-1": "hello", "canary-record": "canary-value"})
         self.assertEqual(state["writes"], 2)
 
+    def test_hard_mode_adds_decoys_without_breaking_the_deterministic_heal(self):
+        self.post("/chaos", {"enabled": True, "hard": True})
+        page = urlopen(f"{self.site}/records", timeout=3).read().decode()
+        for decoy in ("Save draft", "Clear form", "Search records"):
+            self.assertIn(decoy, page)
+        evidence = HealEvidence(action_type="click", history_step=0, action_index=0, node_name="BUTTON",
+                                attributes={"data-action": "save"}, reasoning="Mocked unique executed click")
+
+        async def diagnose(settings, workflow, params, failure, **kwargs):
+            return Candidate(SAVE, evidence, metrics={"cost_usd": 0.001, "total_tokens": 1})
+        self.client.app.state.diagnose = diagnose
+        payload = self.request()
+        self.assertEqual(payload["status"], "healed", payload)
+        self.assertEqual(self.state()["records"]["rec-1"], "hello")
+        self.assertTrue(self.state()["hard"])
+        self.post("/reset", {})
+        self.assertFalse(self.state()["hard"])
+
+    def mocked_read_agent(self, selector, reported):
+        evidence = HealEvidence(action_type="read", history_step=3, action_index=0, node_name="SPAN",
+                                attributes={"data-testid": "result-value"}, reasoning="Mocked unique visible element")
+
+        async def diagnose(settings, workflow, params, failure, **kwargs):
+            self.assertEqual(failure.failed_step, "saved_value")  # only the read is broken
+            return Candidate(selector, evidence, metrics={"cost_usd": 0.001, "total_tokens": 1}, reported=reported)
+        self.client.app.state.diagnose = diagnose
+
+    def test_read_chaos_breaks_only_the_read_and_a_correct_read_heal_commits(self):
+        self.post("/chaos", {"enabled": False, "read": True})
+        self.mocked_read_agent('span[data-testid="result-value"]', {"value": "hello"})
+        payload = self.request()
+        self.assertEqual(payload["status"], "healed", payload)
+        self.assertEqual(payload["data"], {"record_id": "rec-1", "value": "hello"})
+        record = payload["heal_records"][0]
+        self.assertEqual((record["field"], record["verification_outcome"], record["evidence"]["action_type"]),
+                         ("saved_value", "committed", "read"))
+        self.assertEqual(json.loads(self.path.read_text())["fields"]["saved_value"], 'span[data-testid="result-value"]')
+        self.assertEqual(self.request("after", "x")["status"], "success")
+
+    def test_a_read_heal_that_reads_a_different_element_than_reported_is_rolled_back(self):
+        self.post("/chaos", {"enabled": False, "read": True})
+        # The record span shows "rec-1", but the agent claimed it saw "hello".
+        self.mocked_read_agent('span[data-testid="saved-record"]', {"value": "hello"})
+        payload = self.request()
+        self.assertEqual(payload["status"], "failed")
+        self.assertEqual(payload["error"]["code"], "read_mismatch")
+        self.assertEqual(payload["heal_records"][0]["verification_outcome"], "rolled_back")
+        self.assertEqual(json.loads(self.path.read_text())["fields"]["saved_value"], "[data-testid='saved-value']")
+
+    def test_the_canary_alone_rejects_a_wrong_read_element(self):
+        self.post("/chaos", {"enabled": False, "read": True})
+        # No reported values to cross-check, so only the canary (value must be "canary-value") can catch this.
+        self.mocked_read_agent('span[data-testid="saved-record"]', None)
+        payload = self.request("same", "same-text")
+        self.assertEqual((payload["status"], payload["error"]["code"]), ("failed", "canary_failed"))
+        self.assertEqual(payload["heal_records"][0]["verification_outcome"], "rolled_back")
+
     @unittest.skipUnless(os.getenv("MENDER_LIVE_TEST") == "1", "Set MENDER_LIVE_TEST=1 for paid Gemini calls")
     def test_gemini_heals_the_save_button_on_the_sandbox(self):
         from dotenv import load_dotenv
@@ -163,10 +202,28 @@ class SandboxSiteTests(unittest.TestCase):
         state = self.state()
         print(f"sandbox Gemini heal: {time.perf_counter() - started:.1f} s; cost {payload.get('agent_cost_usd')}; "
               f"agent_ms {payload.get('agent_duration_ms')}; writes {state['writes']}; "
-              f"selector {json.loads((self.root / 'contracts/selectors.json').read_text())['fields']['save_button']}")
+              f"selector {json.loads(self.path.read_text())['fields']['save_button']}")
         self.assertEqual(payload["status"], "healed", payload)
         self.assertEqual(state["records"].get("live-rec"), "live-value")
         self.assertEqual(state["records"].get("canary-record"), "canary-value")
+        self.assertEqual(self.request("after", "x")["status"], "success")
+
+
+    @unittest.skipUnless(os.getenv("MENDER_LIVE_TEST") == "1", "Set MENDER_LIVE_TEST=1 for paid Gemini calls")
+    def test_gemini_heals_a_broken_read_selector_on_the_sandbox(self):
+        from dotenv import load_dotenv
+        load_dotenv(ROOT / "services/backend/.env", override=False)
+        self.client.app.state.diagnose = None
+        self.post("/chaos", {"enabled": False, "read": True})
+        started = time.perf_counter()
+        payload = self.request("live-read", "live-read-value")
+        print(f"sandbox Gemini READ heal: {time.perf_counter() - started:.1f} s; cost {payload.get('agent_cost_usd')}; "
+              f"records {[(r['field'], r['verification_outcome'], r['evidence']['action_type']) for r in payload.get('heal_records', [])]}; "
+              f"selector {json.loads(self.path.read_text())['fields']['saved_value']}")
+        self.assertEqual(payload["status"], "healed", payload)
+        self.assertEqual(payload["data"], {"record_id": "live-read", "value": "live-read-value"})
+        self.assertEqual([(r["field"], r["verification_outcome"], r["evidence"]["action_type"]) for r in payload["heal_records"]],
+                         [("saved_value", "committed", "read")])
         self.assertEqual(self.request("after", "x")["status"], "success")
 
 

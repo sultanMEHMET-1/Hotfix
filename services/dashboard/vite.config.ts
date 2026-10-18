@@ -13,6 +13,8 @@ export default defineConfig({
   },
   server: {
     port: 5173,
+    // Localhost only: the backend trusts the dev proxy as a loopback caller for its admin endpoints.
+    host: "127.0.0.1",
     fs: { allow: ["..", "../../contracts"] },
     proxy: {
       "/api": "http://localhost:8000",
@@ -22,5 +24,13 @@ export default defineConfig({
     environment: "jsdom",
     globals: true,
     setupFiles: ["./src/test-setup.ts"],
+    // Tests must not depend on a developer's .env.local (live mode, a Sentry DSN): pin every variable.
+    env: {
+      VITE_USE_MOCKS: "true",
+      VITE_API_BASE: "",
+      VITE_SENTRY_ORG: "",
+      VITE_SENTRY_DSN: "",
+      VITE_SENTRY_REPLAY_RATE: "0.1",
+    },
   },
 });

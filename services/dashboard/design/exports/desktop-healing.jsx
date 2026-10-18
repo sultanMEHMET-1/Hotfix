@@ -136,7 +136,7 @@
         </div>
         <div className="flex items-center justify-center [width:100%] h-[140px] rounded-md shrink-0 bg-heal-bg border border-solid border-heal">
           <div className="font-sans text-[13px] inline-block font-[600] leading-[16px] text-heal">
-            ⟳ Agent re-indexing the page — comparing selectors against the live DOM…
+            ⟳ Agent re-indexing the page - comparing selectors against the live DOM…
           </div>
         </div>
       </div>
@@ -155,10 +155,10 @@
             </div>
           </div>
           <div className="w-[120px] shrink-0 font-mono text-[13px] inline-block leading-[16px] text-ink">
-            —
+            -
           </div>
           <div className="w-[120px] shrink-0 font-mono text-[13px] inline-block leading-[16px] text-ink">
-            —
+            -
           </div>
           <div className="grow basis-[0%] font-mono text-xs inline-block leading-[16px] text-ink-muted">
             0123456789abcdef0123456789abcdef

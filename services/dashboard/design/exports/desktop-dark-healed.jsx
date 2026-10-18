@@ -174,7 +174,7 @@
             </div>
           </div>
           <div className="font-sans text-xs inline-block leading-[16px] text-[#9A9BA1]">
-            Why: input · INPUT · Permit ID — a unique executed action matches the ordered workflow field and element label.
+            Why: input · INPUT · Permit ID - a unique executed action matches the ordered workflow field and element label.
           </div>
         </div>
         <div className="flex flex-col [width:100%] p-[16px] rounded-md gap-[10px] bg-[#1A1B1E] border border-solid border-[#2A2B2F]">
@@ -212,7 +212,7 @@
             </div>
           </div>
           <div className="font-sans text-xs inline-block leading-[16px] text-[#9A9BA1]">
-            Why: click · BUTTON · Look up permit — a unique executed action matches the ordered workflow field and element label.
+            Why: click · BUTTON · Look up permit - a unique executed action matches the ordered workflow field and element label.
           </div>
         </div>
       </div>

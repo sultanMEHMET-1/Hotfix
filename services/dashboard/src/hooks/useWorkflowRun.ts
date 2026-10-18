@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { WorkflowExecutionResponse } from "@contracts/api_types";
+import * as Sentry from "@sentry/react";
+import type { WorkflowExecutionResponse, WorkflowSummary } from "@contracts/api_types";
 import { runWorkflow } from "../api/client";
 import { type MockScenario, fastResponse, healResponse } from "../api/mocks";
 import { USE_MOCKS } from "../config";
@@ -16,9 +17,10 @@ export interface RunHistoryEntry {
   costUsd: number | null;
 }
 
+/** null means "no real run yet": the UI shows n/a instead of inventing a number. */
 export interface Benchmarks {
-  fastMs: number;
-  healMs: number;
+  fastMs: number | null;
+  healMs: number | null;
   fastCost: number | null;
   healCost: number | null;
 }
@@ -26,6 +28,8 @@ export interface Benchmarks {
 export interface TriggerOptions {
   /** Mock mode only: which canned outcome to return. */
   scenario: MockScenario;
+  /** Which workflow to run; defaults to the permit demo. */
+  workflow?: WorkflowSummary;
 }
 
 export interface UseWorkflowRun {
@@ -51,14 +55,18 @@ export const DEFAULT_BENCHMARKS: Benchmarks = {
   healCost: runCostUsd(healResponse),
 };
 
-export function computeBenchmarks(history: RunHistoryEntry[]): Benchmarks {
+/** Live mode before any real run: every figure is unknown. */
+export const EMPTY_BENCHMARKS: Benchmarks = { fastMs: null, healMs: null, fastCost: null, healCost: null };
+
+/** Real runs win; otherwise fall back to `placeholders` (fixture numbers in mock mode, n/a in live mode). */
+export function computeBenchmarks(history: RunHistoryEntry[], placeholders: Benchmarks = DEFAULT_BENCHMARKS): Benchmarks {
   const fast = history.find((h) => h.response.status === "success" && !usedAgent(h.response));
   const heal = history.find((h) => h.response.status === "healed");
   return {
-    fastMs: fast ? fast.response.execution_time_ms : DEFAULT_BENCHMARKS.fastMs,
-    healMs: heal ? heal.response.execution_time_ms : DEFAULT_BENCHMARKS.healMs,
-    fastCost: fast ? fast.costUsd : DEFAULT_BENCHMARKS.fastCost,
-    healCost: heal ? heal.costUsd : DEFAULT_BENCHMARKS.healCost,
+    fastMs: fast ? fast.response.execution_time_ms : placeholders.fastMs,
+    healMs: heal ? heal.response.execution_time_ms : placeholders.healMs,
+    fastCost: fast ? fast.costUsd : placeholders.fastCost,
+    healCost: heal ? heal.costUsd : placeholders.healCost,
   };
 }
 
@@ -68,7 +76,7 @@ function isAbortError(e: unknown): boolean {
 
 let entrySeq = 0;
 
-export function useWorkflowRun(): UseWorkflowRun {
+export function useWorkflowRun(mocksOn: boolean = USE_MOCKS): UseWorkflowRun {
   const [phase, setPhase] = useState<RunPhase>("idle");
   const [result, setResult] = useState<WorkflowExecutionResponse | null>(null);
   const [error, setError] = useState<Error | null>(null);
@@ -96,7 +104,7 @@ export function useWorkflowRun(): UseWorkflowRun {
   );
 
   const trigger = useCallback(
-    ({ scenario }: TriggerOptions) => {
+    ({ scenario, workflow }: TriggerOptions) => {
       cancelInFlight();
       const runId = ++runIdRef.current;
       const controller = new AbortController();
@@ -122,7 +130,12 @@ export function useWorkflowRun(): UseWorkflowRun {
         if (controllerRef.current === controller) controllerRef.current = null;
       };
 
-      runWorkflow({ scenario, signal: controller.signal }).then(
+      // The click is the root of one trace: the fetch below carries it into the backend, the runner and the agent.
+      Sentry.startSpan(
+        { name: "Trigger workflow", op: "ui.action.click",
+          attributes: { "workflow.id": workflow?.id ?? "permit-application", "mender.mocks": USE_MOCKS } },
+        () => runWorkflow({ scenario, workflow, signal: controller.signal }),
+      ).then(
         (response) => {
           if (runIdRef.current !== runId) return;
           finish();
@@ -147,7 +160,10 @@ export function useWorkflowRun(): UseWorkflowRun {
     [cancelInFlight],
   );
 
-  const benchmarks = useMemo(() => computeBenchmarks(history), [history]);
+  const benchmarks = useMemo(
+    () => computeBenchmarks(history, mocksOn ? DEFAULT_BENCHMARKS : EMPTY_BENCHMARKS),
+    [history, mocksOn],
+  );
 
   return { phase, result, error, history, benchmarks, trigger };
 }

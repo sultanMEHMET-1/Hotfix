@@ -6,7 +6,6 @@ import copy
 import json
 import os
 from pathlib import Path
-import shutil
 import subprocess
 import sys
 import tempfile
@@ -22,6 +21,7 @@ from contracts.api_types import FailurePayload
 from services.backend.config import BackendError, Settings, Workflow, masked_output
 from services.backend.healer import Candidate, extract_evidence
 from services.backend.main import create_app
+from services.backend.tests.support import make_root
 
 
 ROOT = Path(__file__).resolve().parents[3]
@@ -106,7 +106,7 @@ class AdapterTests(unittest.IsolatedAsyncioTestCase):
     async def test_no_agent_result_is_retryable_and_clients_are_cleaned(self):
         await self.exercise_adapter("no_result")
 
-    async def test_agent_reporting_failure_behind_a_login_wall_is_not_retried(self):
+    async def test_agent_reporting_failure_is_raised_as_agent_blocked(self):
         await self.exercise_adapter("blocked")
 
     async def exercise_adapter(self, mode):
@@ -118,7 +118,7 @@ class AdapterTests(unittest.IsolatedAsyncioTestCase):
         clients_closed = []
         class Browser:
             def __init__(self, **kwargs):
-                pass
+                Path(kwargs["user_data_dir"]).mkdir(parents=True, exist_ok=True)
             async def get_or_create_cdp_session(self):
                 async def evaluate(params, session_id):
                     selector = None if mode == "unresolved" else CORRECT if 'html/body/button' in params["expression"] else 'input[data-testid="lookup-reference"]'
@@ -141,6 +141,7 @@ class AdapterTests(unittest.IsolatedAsyncioTestCase):
         class Agent:
             def __init__(self, **kwargs):
                 self.kwargs = kwargs
+                Path(kwargs["file_system_path"]).mkdir(parents=True, exist_ok=True)
             async def run(self, max_steps):
                 if mode == "no_result":
                     return None
@@ -177,8 +178,10 @@ class AdapterTests(unittest.IsolatedAsyncioTestCase):
                     expected = {"timeout": "agent_timeout", "unresolved": "unresolved_element", "no_result": "agent_no_result",
                                 "blocked": "agent_blocked"}
                     self.assertEqual(caught.exception.code, expected.get(mode, "ambiguous_element"))
+            leftovers = [p for p in Path(directory).rglob("*") if p.name.startswith(("browser-", "agent-"))]
         self.assertEqual(closed, [True])
         self.assertEqual(clients_closed, ["async", "sync"])
+        self.assertEqual(leftovers, [], "per-invocation profile and file-system directories must be removed")
 
     async def test_failed_sdk_cleanup_force_kills_its_owned_process(self):
         from services.backend.healer import close_browser
@@ -198,14 +201,11 @@ class EndpointTests(unittest.TestCase):
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
         self.root = Path(self.temp.name)
-        shutil.copytree(ROOT / "contracts", self.root / "contracts")
         self.backend = self.root / "services/backend"
-        (self.backend / "workflows").mkdir(parents=True)
         self.definition = workflow_definition()
-        (self.backend / "workflows/sample-lookup.json").write_text(json.dumps(self.definition))
         self.baseline = {"workflow_id": "sample-lookup", "target_url": "http://portal.test/lookup",
                          "version": 1, "fields": {"input_reference": "#reference", "submit_button": "#broken"}}
-        self.write_selectors(self.baseline)
+        self.path = make_root(self.root, "sample-lookup", self.definition, self.baseline)
         self.settings = Settings(root=self.root, runner_script=FIXTURES / "fake_runner.py", runner_timeout=2)
         self.app = create_app(self.settings)
         self.env = patch.dict(os.environ, {"SENTRY_DSN": ""})
@@ -225,10 +225,10 @@ class EndpointTests(unittest.TestCase):
         self.app.state.diagnose = diagnose
 
     def write_selectors(self, value):
-        (self.root / "contracts/selectors.json").write_text(json.dumps(value))
+        self.path.write_text(json.dumps(value))
 
     def selectors(self):
-        return json.loads((self.root / "contracts/selectors.json").read_text())
+        return json.loads(self.path.read_text())
 
     def recovery_error(self):
         report = next((self.backend / "state").glob("recovery-*.json"))
@@ -383,7 +383,7 @@ class EndpointTests(unittest.TestCase):
 
     def test_failed_rollback_stops_subsequent_execution(self):
         self.new_selector = 'button[data-action="wrong"]'
-        with patch.object(self.app.state.store, "restore", side_effect=OSError("Disk unavailable")):
+        with patch.object(self.app.state.stores["sample-lookup"], "restore", side_effect=OSError("Disk unavailable")):
             payload = self.request().json()
         self.assertEqual(payload["status"], "failed")
         self.assertIn("error", payload)

@@ -109,7 +109,7 @@
         </div>
         <div className="flex items-center justify-center [width:100%] h-[120px] rounded-md shrink-0 bg-surface-muted border border-dashed border-border">
           <div className="font-sans text-[13px] inline-block leading-[16px] text-ink-muted">
-            No runs yet — trigger the workflow to see latency history
+            No runs yet - trigger the workflow to see latency history
           </div>
         </div>
       </div>
@@ -126,7 +126,7 @@
         </div>
         <div className="flex items-center justify-center [width:100%] h-[140px] rounded-md shrink-0 bg-surface-muted border border-dashed border-border">
           <div className="font-sans text-[13px] inline-block leading-[16px] text-ink-muted">
-            No selector changes — the cache is still fresh
+            No selector changes - the cache is still fresh
           </div>
         </div>
       </div>
