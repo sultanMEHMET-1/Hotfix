@@ -48,8 +48,12 @@ def reset_through_backend(backend_url: str) -> int | None:
             return int(json.load(response)["version"])
     except HTTPError as error:
         raise ResetError(f"Backend refused the reset (HTTP {error.code}); retry when it is idle") from error
-    except (URLError, OSError):
-        return None
+    except URLError as error:
+        if isinstance(error.reason, ConnectionRefusedError):
+            return None
+        raise ResetError(f"Backend did not answer the reset ({error.reason}); not editing selectors directly") from error
+    except OSError as error:  # a timeout or reset from a backend that IS listening
+        raise ResetError(f"Backend did not answer the reset ({error}); not editing selectors directly") from error
 
 
 def reset_submit_selector(selector_path: Path) -> tuple[bool, int]:

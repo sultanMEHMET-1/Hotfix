@@ -73,6 +73,18 @@ class RunnerContractTests(unittest.TestCase):
             self.assertEqual(selector_map["fields"]["submit_button"], "#submit-btn")
             self.assertEqual(selector_map["version"], 5)
 
+    def test_reset_never_edits_the_file_when_a_listening_backend_fails_to_answer(self):
+        from unittest.mock import patch
+        from urllib.error import URLError
+        from reset_demo import ResetError, reset_through_backend
+
+        with patch("reset_demo.urlopen", side_effect=URLError(ConnectionRefusedError())):
+            self.assertIsNone(reset_through_backend("http://127.0.0.1:8000"))
+        for failure in (TimeoutError("timed out"), ConnectionResetError("reset"), URLError(TimeoutError("timed out"))):
+            with self.subTest(failure=type(failure).__name__), patch("reset_demo.urlopen", side_effect=failure):
+                with self.assertRaises(ResetError):
+                    reset_through_backend("http://127.0.0.1:8000")
+
 
 if __name__ == "__main__":
     unittest.main()
