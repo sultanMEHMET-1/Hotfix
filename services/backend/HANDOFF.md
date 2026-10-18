@@ -1,18 +1,18 @@
-# M2 review handoff
+# M3 review handoff
 
 ## Status and review boundary
 
-M1 was accepted; M2 is implemented on `codex/browser-use-recovery` and must stop
-for review. The pre-M2 baseline is `e88872e`. M3 cooldown and populated
-`heal_records` are not implemented. No real team portal, runner, or dashboard is
-present in this checkout; integration fixtures are not replacements for them.
+M1 and M2 were accepted. M3 (15 s failure cooldown, finalized `heal_records`,
+reset and status endpoints) is implemented on `codex/browser-use-recovery` and must
+stop for review. The pre-M3 baseline is `d36e539`. No real team portal, runner, or
+dashboard is present in this checkout; integration fixtures are not replacements.
 
-The endpoint keeps the shared response model and schema. The user's latest
-instruction deliberately withholds `error`, `agent_cost_usd`,
-`agent_duration_ms`, and `heal_records` from responses, even though the shared
-model currently permits them. Failed execution returns `status="failed"`,
-`healed=false`, and `data={}`. Detail, cost, and token usage belong in logs and
-Sentry. Do not re-enable those response fields without owner approval.
+The endpoint builds the shared response model, dumps it once, and validates that same
+JSON with Pydantic's model and the JSON Schema before returning it. All four
+contract fields are enabled (owner approved). Failed execution returns HTTP 200,
+`status="failed"`, `healed=false`, `data={}`, and no `diff`. Cost and agent duration
+are emitted only to the request that ran the agent and only when every invocation
+reported them. Joined requests and cooldown hits never get them.
 
 ## Read and trace
 
@@ -62,8 +62,17 @@ Sentry. Do not re-enable those response fields without owner approval.
     Restoration uses a new version greater than every provisional version. No
     installed patch means no restoration write. Rollback failure blocks service.
 11. Successful waiters replay with their own parameters/run IDs; failed flights
-    return failure to existing waiters. Completed tasks are removed immediately.
-    There is no cooldown or persistent success/failure cache.
+    return failure to existing waiters. After cleanup, a failed attempted recovery
+    is stored for 15 s (`Recovery.cooldown`, set as the last synchronous step of
+    `run()`). Lookup, join and registration in `main.py` have no await between
+    them. The key uses the map on disk after cleanup because rollback bumps the
+    version. Hits never extend expiry. Uncacheable: config errors, cancellation,
+    failed cleanup or restoration, and failures without valid evidence.
+11a. Records: one draft per candidate with a non-empty selector, in attempt order,
+    finalized in `run()`'s `finally`: committed, rolled_back (shared
+    `rollback_version`), or rejected (never written). Failed restoration drops
+    them all. Reset (`/api/v1/admin/reset`, loopback only) restores `git HEAD`
+    selectors as a new version under the exclusive lock and clears the cooldown.
 12. Emit one measurement record per recovery. Independent background Sentry
     transactions retain the originating trace ID and can finish after the owner
     request closes. Waiter spans retain a recovery trace reference.
@@ -119,7 +128,7 @@ Primary [M2 checks](tests/test_m2.py):
   parameters and output. This is not a real TCP-disconnect test.
 - Retry, no-result, ambiguity, invalid candidate, schema rejection, bounded lock
   waiting, shared lock deadline, missing canary, runner-spawn cancellation, and failed active-flight tests
-  exercise additional boundaries. Failed-flight tests explicitly prove no cooldown.
+  exercise additional boundaries. The failed-flight test now proves the 15 s cooldown serves the original failure.
 
 [Real DOM checks](tests/test_selectors.py) mutate classes, exercise stable and
 structural selectors, escape quotes/backslashes/international attributes, and
@@ -164,11 +173,28 @@ Retained final reports (ignored local artifacts):
 - `state/live-button-e4c2d555-f770-47ad-a8d7-0a47562a61e2.json`
 - `state/live-two-fields-da1a6595-4e04-41fc-b1cc-05814c0d07be.json`
 
-Default suite: **64 tests, 57 passed and 7 opt-in tests skipped**. The final
-combined live/real-DOM command ran **7 tests, all passed**. It enabled both
-`MENDER_LIVE_TEST=1` and `MENDER_BROWSER_TEST=1` and selected
-`services.backend.tests.test_live services.backend.tests.test_selectors`.
-Static `ruff --isolated --select E4,E7,E9,F` and `git diff --check` also passed.
+Default suite after M3: **83 tests, 76 passed and 7 opt-in tests skipped**. New
+coverage is in [tests/test_m3.py](tests/test_m3.py) (19 tests: cooldown, reset,
+records, measurement ownership, waiters, sanitized messages, schema validation).
+M1 and M2 omission assertions were updated to the new field policy.
+The combined live/real-DOM command ran **7 tests, all passed**
+(`MENDER_LIVE_TEST=1 MENDER_BROWSER_TEST=1`, `test_live` and `test_selectors`).
+
+### M3 live measurements (Gemini gemini-3.8-flash, local Chrome, fixture portal)
+
+| Scenario | Request | Recovery | Agent invocations | Prompt / completion / total tokens | SDK agent duration | SDK cost estimate |
+| --- | --- | --- | --- | --- | --- | --- |
+| Button | 23.939 s | 20.570 s | 1 | 21,820 / 1,487 / 23,307 | 17.568 s | $0.02194 |
+| Two fields | 43.009 s | 40.300 s | 2 | 43,616 / 2,986 / 46,602 | 34.312 s | $0.04391 |
+
+Usage, cost and agent duration were complete and reliable for both runs, so the
+responses carried `agent_cost_usd` and `agent_duration_ms`. Records were
+committed with versions 1->2 and 1->2->3. Costs are SDK estimates, not billing
+receipts; single samples are not a latency percentile.
+
+Adversarial mutations (isolated process, source untouched), each caught by named
+tests: a no-op cooldown, expiry extended on hits, a key ignoring the failed step,
+a key ignoring the selector map, and rolled_back records labelled committed.
 
 Adversarial mutation checks ran in an isolated test process without editing
 source: replacing restoration with a no-op made the canary rollback test fail;
@@ -178,8 +204,11 @@ broken implementations. Mutation patches were removed before normal verification
 
 ## Remaining limits
 
-- M3 cooldown and heal records remain absent. A request after a failed task has
-  finished may start a new recovery immediately.
+- The cooldown is in memory, per process, and a `dom_snippet` that embeds dynamic
+  content (token, clock) makes every failure look new, so it never hits (safe, but
+  defeats the feature). Verify against Person 1's real artifacts.
+- Reset needs git on the host and a committed original; it refuses during a recovery.
+  A rollback failure still needs a manual restore from the backup plus a restart.
 - No automatic crash recovery. Forced termination after a provisional write
   may leave it installed; preserve backups and use reset, then restart.
 - The deadline assumes a responsive process/OS. Synchronous filesystem work

@@ -19,7 +19,8 @@ PICTOGRAPHS = re.compile(
 )
 COLORS = {"FAST": "cyan", "BROKEN": "yellow", "AGENT": "blue",
           "PATCH": "magenta", "VERIFY": "cyan", "CANARY": "cyan",
-          "HEALED": "green", "FAILED": "red", "ROLLBACK": "yellow"}
+          "HEALED": "green", "FAILED": "red", "ROLLBACK": "yellow",
+          "COOLDOWN": "yellow"}
 
 
 def clean(text):

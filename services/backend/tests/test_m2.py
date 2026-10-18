@@ -23,7 +23,7 @@ from services.backend.config import Workflow
 INPUT = 'input[data-testid="lookup-reference"]'
 
 
-class M2Tests(unittest.IsolatedAsyncioTestCase):
+class M2Harness(unittest.IsolatedAsyncioTestCase):
     async def asyncSetUp(self):
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
@@ -74,14 +74,16 @@ class M2Tests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(payload["status"], "failed")
         self.assertFalse(payload["healed"])
         self.assertEqual(payload["data"], {})
-        for field in ("error", "agent_cost_usd", "agent_duration_ms", "diff", "heal_records"):
-            self.assertNotIn(field, payload)
+        self.assertIn("error", payload)
+        self.assertNotIn("diff", payload)
 
     def report(self):
         files = list((self.settings.backend / "state").glob("recovery-*.json"))
         self.assertEqual(len(files), 1)
         return json.loads(files[0].read_text())
 
+
+class M2Tests(M2Harness):
     async def test_two_fields_repair_in_order_without_reentrant_deadlock(self):
         acquisitions = []
         original = self.app.state.store.lock
@@ -100,8 +102,12 @@ class M2Tests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(self.selectors()["version"], 3)
         self.assertEqual(payload["diff"]["old_selector"], "#broken")
         self.assertEqual(self.report()["totals"]["total_tokens"], 24)
-        for field in ("error", "agent_cost_usd", "agent_duration_ms", "heal_records"):
-            self.assertNotIn(field, payload)
+        self.assertNotIn("error", payload)
+        self.assertEqual([(r["field"], r["verification_outcome"], r["version_before"], r["version_after"])
+                          for r in payload["heal_records"]],
+                         [("input_reference", "committed", 1, 2), ("submit_button", "committed", 2, 3)])
+        self.assertEqual(payload["agent_cost_usd"], 0.002)
+        self.assertNotIn("agent_duration_ms", payload)  # Mocked candidates report no SDK duration.
 
     async def test_canary_failure_restores_both_patches_with_higher_version(self):
         async def poisoned(settings, workflow, params, failed, **kwargs):
@@ -273,7 +279,7 @@ class M2Tests(unittest.IsolatedAsyncioTestCase):
                 release.set()
                 await asyncio.gather(run, return_exceptions=True)
 
-    async def test_failed_flight_is_shared_without_cooldown(self):
+    async def test_failed_flight_is_shared_then_served_from_cooldown(self):
         entered = asyncio.Event()
         release = asyncio.Event()
         async def ambiguous(*args, **kwargs):
@@ -292,8 +298,9 @@ class M2Tests(unittest.IsolatedAsyncioTestCase):
             for response in await asyncio.gather(owner, waiter):
                 self.assert_failed(response.json())
             self.assertEqual(self.calls, ["ambiguous"])
+            # The failed flight now sits in the 15 s cooldown; see test_m3 for its full behavior.
             self.assert_failed((await self.request("later")).json())
-            self.assertEqual(self.calls, ["ambiguous", "ambiguous"])
+            self.assertEqual(self.calls, ["ambiguous"])
         finally:
             release.set()
             await asyncio.gather(owner, *([waiter] if waiter else []), return_exceptions=True)

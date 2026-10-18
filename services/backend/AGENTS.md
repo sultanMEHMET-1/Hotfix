@@ -13,8 +13,8 @@ These instructions supplement the repository and global AGENTS.md instructions.
 
 ## Current scope and boundaries
 
-- M1 was accepted. M2 is implemented and requires review before continuing.
-  M3 cooldown and heal_records require explicit user instruction.
+- M1 was accepted. M2 was reviewed. M3 (cooldown, heal_records, reset) is
+  implemented and requires review before continuing.
 - Backend source, tests, fixtures, and docs belong under `services/backend/`.
   Portal, runner, and dashboard implementation belong to other team members.
 - Treat the shared JSON schemas and models as authoritative. Import shared
@@ -45,10 +45,13 @@ These instructions supplement the repository and global AGENTS.md instructions.
   candidates, and same/earlier-step replay failures abort without retry.
 - Every selector write, including rollback and reset, advances the version.
   Rollback failure blocks further execution until reset and server restart.
-- Responses follow the shared schema. Omit error, agent_cost_usd,
-  agent_duration_ms, and heal_records pending owner approval. Failure is
-  status=failed, healed=false, data={}; error detail and usage belong in logs.
-- Only active-task joining is implemented. Do not add M3 cooldown or records.
+- Responses follow the shared schema. error, heal_records, agent_cost_usd and
+  agent_duration_ms are enabled. Failure is HTTP 200, status=failed,
+  healed=false, data={}, no diff. Cost and duration go only to the request that
+  ran the agent, only when reliable. error.message must stay safe to show.
+- Cooldown: one failed recovery per workflow for 15 s, never extended by hits,
+  keyed on the post-cleanup selector map. Never cache config errors or failed
+  cleanup. Records are never fabricated for agent errors or ambiguous evidence.
 - Terminal output uses Rich without emojis. Keep cleanup in the renderer;
   preserve original log records, literal selectors, errors, and Sentry context.
 

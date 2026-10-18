@@ -89,6 +89,13 @@ class LiveTest(unittest.TestCase):
                         "attempts": [], "totals": {},
                     }
                     measurement["request_wall_time_ms"] = payload["execution_time_ms"]
+                    # Records which response measurements the SDK made reliably available.
+                    measurement["response"] = {
+                        "agent_cost_usd": payload.get("agent_cost_usd"),
+                        "agent_duration_ms": payload.get("agent_duration_ms"),
+                        "records": [(r["field"], r["verification_outcome"], r["version_before"], r.get("version_after"))
+                                    for r in payload.get("heal_records", [])],
+                    }
         server.shutdown()
         server.server_close()
         measurement["test_wall_time_ms"] = (time.perf_counter() - started) * 1000
@@ -103,11 +110,15 @@ class LiveTest(unittest.TestCase):
                       f"recovery: {recovery_time}; "
                       f"test: {measurement['test_wall_time_ms'] / 1000:.3f} s")
         console.print(f"Tokens: {measurement['totals']}")
+        console.print(f"Response measurements: {measurement['response']}")
         # Persist outcome and usage before assertions, including unsuccessful healing.
         self.assertEqual(response.status_code, 200)
         self.assertEqual(payload["status"], "healed")
         self.assertEqual(payload["data"], {"record_id": record_id, "status": "found"})
         self.assertEqual(version, 3 if two_fields else 2)
+        expected = [("input_reference", "committed", 1, 2), ("submit_button", "committed", 2, 3)] if two_fields \
+            else [("submit_button", "committed", 1, 2)]
+        self.assertEqual(measurement["response"]["records"], expected)
         self.assertEqual(len(reports), 1)
         self.assertEqual(len(measurement["attempts"]), 2 if two_fields else 1)
         self.assertTrue(measurement["totals"]["total_tokens_complete"], measurement)

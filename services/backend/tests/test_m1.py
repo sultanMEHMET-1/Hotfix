@@ -269,7 +269,7 @@ class EndpointTests(unittest.TestCase):
         self.new_selector = 'button[data-action="poisoned"]'
         payload = self.request().json()
         self.assertEqual(payload["status"], "failed")
-        self.assertNotIn("error", payload)
+        self.assertIn("error", payload)
         self.assertEqual(self.recovery_error(), "canary_failed")
         self.assertEqual(self.selectors()["fields"], self.baseline["fields"])
         self.assertEqual(self.selectors()["version"], 3)
@@ -280,7 +280,7 @@ class EndpointTests(unittest.TestCase):
         self.app.state.diagnose = timeout
         payload = self.request().json()
         self.assertEqual(payload["status"], "failed")
-        self.assertNotIn("error", payload)
+        self.assertIn("error", payload)
         self.assertEqual(self.recovery_error(), "agent_timeout")
         self.assertEqual(self.selectors(), self.baseline)
 
@@ -296,7 +296,7 @@ class EndpointTests(unittest.TestCase):
         self.settings.runner_timeout = 0.2
         payload = self.request(case="hang").json()
         self.assertEqual(payload["status"], "failed")
-        self.assertNotIn("error", payload)
+        self.assertIn("error", payload)
         pid = int((self.root / "runner.pid").read_text())
         with self.assertRaises(ProcessLookupError):
             os.kill(pid, 0)
@@ -349,7 +349,7 @@ class EndpointTests(unittest.TestCase):
         self.app.state.runner.execute = timeout
         payload = self.request().json()
         self.assertEqual(payload["status"], "failed")
-        self.assertNotIn("error", payload)
+        self.assertIn("error", payload)
         self.assertEqual(self.recovery_error(), "canary_failed")
         self.assertEqual(self.selectors()["version"], 3)
         self.assertEqual(self.selectors()["fields"], self.baseline["fields"])
@@ -381,7 +381,7 @@ class EndpointTests(unittest.TestCase):
         with patch.object(self.app.state.store, "restore", side_effect=OSError("Disk unavailable")):
             payload = self.request().json()
         self.assertEqual(payload["status"], "failed")
-        self.assertNotIn("error", payload)
+        self.assertIn("error", payload)
         self.assertEqual(self.recovery_error(), "rollback_failed")
         self.assertEqual(self.request().status_code, 503)
 

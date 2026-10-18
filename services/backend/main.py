@@ -6,13 +6,15 @@ import logging
 import math
 import time
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel, ConfigDict, Field
 import sentry_sdk
 
-from contracts.api_types import WorkflowExecutionResponse
+from contracts.api_types import RecoveryError, WorkflowExecutionResponse
 from .config import BackendError, Settings, load_workflows, read_json, validator
 from .recovery import Recovery
+from .reset import restore_original
 from .runner import Runner
 from .store import SelectorStore
 from .terminal import configure_logging
@@ -83,9 +85,47 @@ def create_app(settings=None):
 
     app = FastAPI(title="Mender backend", lifespan=lifespan)
 
-    @app.post("/api/v1/run-workflow", response_model=WorkflowExecutionResponse,
-              response_model_exclude_none=True, response_model_exclude_defaults=True,
-              response_model_exclude={"error", "agent_cost_usd", "agent_duration_ms", "heal_records"})
+    def require_local(request: Request):
+        if not request.client or request.client.host not in {"127.0.0.1", "::1", "testclient"}:
+            raise HTTPException(403, "Operator endpoints are local only")
+
+    @app.get("/api/v1/status")
+    async def status(request: Request):
+        require_local(request)
+        recovery = app.state.recovery
+        now = recovery.clock()
+        return {"blocked": app.state.configuration_error,
+                "active": sorted(w for w in recovery.tasks if recovery.active(w)),
+                "cooldown": {w: round(entry["expires"] - now, 3) for w, entry in recovery.cooldown.items()
+                             if entry["expires"] > now}}
+
+    @app.post("/api/v1/admin/reset")
+    async def reset(request: Request):
+        """Rehearsal reset: restore the committed selectors and forget the failure cooldown."""
+        require_local(request)
+        if app.state.configuration_error and not hasattr(app.state, "store"):
+            raise HTTPException(503, app.state.configuration_error)
+        recovery = app.state.recovery
+        if any(recovery.active(workflow) for workflow in list(recovery.tasks)):
+            raise HTTPException(409, "A recovery is running; retry when it finishes")
+        try:
+            async with asyncio.timeout(settings.lock_timeout):
+                lock = app.state.store.lock(exclusive=True)
+                await lock.__aenter__()
+        except TimeoutError:
+            raise HTTPException(409, "Selector map busy")
+        try:
+            version = await restore_original(settings, app.state.store)
+        except Exception:
+            log.exception("Reset failed")
+            raise HTTPException(500, "Reset failed; see backend logs")
+        finally:
+            await lock.__aexit__(None, None, None)
+        recovery.cooldown.clear()
+        log.info("Original selectors restored as version %s; cooldown cleared", version, extra={"phase": "ROLLBACK"})
+        return {"version": version, "blocked": app.state.configuration_error}
+
+    @app.post("/api/v1/run-workflow", response_model=WorkflowExecutionResponse)
     async def run_workflow(request: WorkflowRequest):
         start = time.monotonic()
         if app.state.configuration_error:
@@ -111,10 +151,12 @@ def create_app(settings=None):
                 diff = None
                 error = None
                 data = {}
+                records = []
+                owner = False
+                outcome = None
                 recovery = app.state.recovery
                 try:
                     task = recovery.active(request.workflow)
-                    owner = False
                     if task is None:
                         lock = store.lock()
                         locked = False
@@ -145,15 +187,29 @@ def create_app(settings=None):
                                 log.warning("%s", result.error, extra={"phase": "BROKEN"})
                                 if result.failure is None:
                                     raise result.error
-                                owner = recovery.active(request.workflow) is None
-                                task = recovery.start(request.workflow, workflow, request.params, output_validator, selectors, result)
+                                # No await from here to start(): lookup, join and register are atomic.
+                                task = recovery.active(request.workflow)
+                                if task is None:
+                                    hit = recovery.cached(request.workflow, result.failure, selectors)
+                                    if hit:
+                                        attempted, outcome = True, hit["outcome"]
+                                        log.warning("Cached failure from recovery %s; %.1f s remaining", hit["recovery_id"],
+                                                    hit["expires"] - recovery.clock(), extra={"phase": "COOLDOWN"})
+                                    else:
+                                        owner = True
+                                        task = recovery.start(request.workflow, workflow, request.params,
+                                                              output_validator, selectors, result)
                     if task is not None:
                         attempted = True
                         outcome = await asyncio.shield(task)
                         attempted = outcome.attempted
+                    if outcome is not None:
                         span.set_data("recovery.trace_id", outcome.trace_id)
+                        # Records describe the selector transaction; status describes this caller's run.
+                        records = outcome.records
                         if outcome.error:
                             raise outcome.error
+                    if task is not None:
                         diff = outcome.diff
                         if owner:
                             data = outcome.data
@@ -197,9 +253,17 @@ def create_app(settings=None):
                     execution_time_ms=(time.monotonic() - start) * 1000,
                     data=data if success else {}, healed=healed, trace_id=trace_id,
                     diff=diff if success else None, recovery_attempted=attempted,
+                    error=RecoveryError(code=error.code, message=str(error)) if error else None,
+                    heal_records=records,
+                    # Measurements belong to the request that ran the agent, never waiters or cache hits.
+                    agent_cost_usd=outcome.agent_cost_usd if owner and outcome else None,
+                    agent_duration_ms=outcome.agent_duration_ms if owner and outcome else None,
                 )
-                app.state.response_validator.validate(response.model_dump(exclude_none=True))
-                return response
+                payload = response.model_dump(mode="json", exclude_none=True)
+                if not records:
+                    payload.pop("heal_records")
+                app.state.response_validator.validate(payload)
+                return JSONResponse(payload)
 
     return app
 

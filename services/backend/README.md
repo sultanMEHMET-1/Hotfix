@@ -1,16 +1,16 @@
-# Backend M2: Browser Use recovery
+# Backend M3: Browser Use recovery with cooldown and repair records
 
-M2 repairs multiple selectors in one locked transaction, through at most three
-agent invocations. Provisional forward progress commits only after deterministic
-replay, output validation, and canary verification. Recovery continues after a
-client disconnect. Stop for M2 review before M3 cooldown or heal records.
+Recovery repairs multiple selectors in one locked transaction, through at most
+three agent invocations. Provisional forward progress commits only after
+deterministic replay, output validation, and canary verification. Recovery
+continues after a client disconnect. A failed recovery is remembered for 15 s,
+and every response carries finalized `heal_records`. Stop for M3 review.
 
 ## Review and agent handoff
 
 Start with [AGENTS.md](AGENTS.md) for agent operating instructions and
 [HANDOFF.md](HANDOFF.md) for the code map, invariants, test evidence, and known
-gaps. The handoff distinguishes implemented M2 behavior from deferred M3
-requirements. Reviewers should verify those boundaries before approving more
+gaps. Reviewers should verify its invariants before approving more
 implementation.
 
 ## Run
@@ -39,9 +39,11 @@ with missing definitions or runner configuration return HTTP 503.
 POST `/api/v1/run-workflow` with `{"workflow":"your-workflow","params":{...}}`.
 Valid execution attempts return HTTP 200 with the shared response model,
 with failure represented by `status="failed"`, `healed=false`, and `data={}`.
-`error`, `agent_cost_usd`, `agent_duration_ms`, and `heal_records` are deliberately
-omitted pending owner approval. Failure detail and usage are logged and sent
-to Sentry. Invalid input returns 422; unknown
+`error` carries a stable code and a safe message (no keys, paths, prompts, or stack
+traces; detail stays in logs and Sentry). `heal_records` lists every candidate that
+reached the page, in attempt order, and is omitted when empty. `agent_cost_usd` and
+`agent_duration_ms` appear only on the request that ran the agent, only when every
+invocation reported them, and never as 0 for unknown. Invalid input returns 422; unknown
 configured workflows return 404. The response trace ID is useful in Sentry
 when a DSN is set. Traces and Sentry logs are enabled; local operation needs no DSN.
 
@@ -189,9 +191,48 @@ version. No installed candidate means no unnecessary restoration write.
 The application retains one active background recovery task per workflow.
 Requests join through a shield; disconnecting or cancelling one request does not
 stop healing. Successful waiters replay using their own parameters and run IDs.
-Failure returns the same failed outcome to existing waiters. Completed tasks are
-removed immediately; there is no cooldown or failure cache. Graceful application
-shutdown waits for active recoveries. M3 heal records remain absent.
+Failure returns the same failed outcome to existing waiters. Graceful application
+shutdown waits for active recoveries.
+
+## Failure cooldown and heal records
+
+After cleanup finishes, one failed recovery per workflow is kept in memory for
+15 s (`failure_cooldown`, event loop monotonic clock). A later runner failure that
+matches on workflow, failed step, old selector, the whole selector map (after
+cleanup, so a rollback's higher version is included) and a hash of the failure
+artifact's page URL, DOM snippet and error message gets the original error and
+records back with no agent, no writes, and no new measurement file. Any difference
+starts a fresh recovery. Hits never extend expiry, a backend restart clears the
+cache, and a `COOLDOWN` log line names the originating recovery and time left.
+Configuration errors, failures without valid runner evidence, cancellations, and
+failed cleanup or restoration are never cached. Deterministic execution continues
+during cooldown.
+
+Each record is `committed` (final replay, schema and canary passed), `rolled_back`
+(installed, then the transaction failed and the baseline was restored; all share
+one `rollback_version`), or `rejected` (a grounded candidate refused before it was
+written, with no `version_after`). Agent errors, empty results, and ambiguous
+evidence stay log and Sentry events. Records describe the selector transaction;
+`status` describes the caller's own run, so a waiter whose replay fails after a
+shared heal keeps the committed records, its own error, and no `diff`. If baseline
+restoration fails, records are omitted, `error.code` is `rollback_failed`, and the
+backend blocks execution (HTTP 503) until restored and restarted.
+
+## Operator commands
+
+Loopback callers only:
+
+```sh
+curl -X POST localhost:8000/api/v1/admin/reset   # restore committed selectors, clear cooldown (409 during a recovery)
+curl localhost:8000/api/v1/status                # blocked reason, active recoveries, cooldown seconds left
+```
+
+Reset restores `contracts/selectors.json` from git `HEAD` as a new higher version.
+Do not commit a healed selector map or HEAD stops being the original. With the
+server stopped, `python -m services.backend.reset --original` does the file part.
+After `rollback_failed` the backup path is in the ERROR log; run
+`python -m services.backend.reset services/backend/state/baseline-<run_id>.json`
+then restart.
 
 Recovery has one 240-second monotonic budget, starting before exclusive-lock
 waiting. Recovery work stops at 210 seconds, reserving 30 seconds for emergency
@@ -238,7 +279,7 @@ suite mocks Browser Use and skips these browser checks and both paid live tests.
 
 The live command retains sanitized JSON reports under ignored
 `services/backend/state/live-<scenario>-<recovery_id>.json`, even though its portal,
-selectors, failure screenshots, and backups are temporary. Reports contain Python
+selectors, failure screenshots, and backups are temporary. Live reports also record the response's cost, agent duration, and records. Reports contain Python
 and SDK versions, model, request/recovery/test wall-clock times, per-invocation
 wall-clock times, and SDK token usage. Cached tokens are reported separately as
 a subset of prompt usage, not added twice. Total token count follows the SDK's

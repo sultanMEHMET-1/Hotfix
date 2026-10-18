@@ -64,6 +64,7 @@ class Settings:
     recovery_timeout: float = 240
     cleanup_reserve: float = 30
     lock_timeout: float = 5
+    failure_cooldown: float = 15
     demo_workflow: str | None = None
     headless: bool = True
     browser_executable: str | None = None
