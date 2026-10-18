@@ -87,6 +87,8 @@ describe("workflowLabel", () => {
   it("names the demo sites, and spaces out any other id", () => {
     expect(workflowLabel("permit-application")).toBe("Permit portal");
     expect(workflowLabel("record-update")).toBe("Inventory desk");
+    expect(workflowLabel("wikipedia-article")).toBe("Wikipedia");
+    expect(workflowLabel("python-latest-release")).toBe("Python releases");
     expect(workflowLabel("new-site-check")).toBe("New site check");
   });
 });

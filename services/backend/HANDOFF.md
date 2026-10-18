@@ -12,7 +12,7 @@ recovery and related work are merged in PR #2. The inventory demo upgrade is on 
 | M1 single-field recovery, M2 transactional multi-field recovery, M3 failure cooldown and finalized `heal_records` | Shipped, tested, merged |
 | Real runner and portal (Person 1) | Merged; speaks the agreed CLI; verified end to end |
 | Dashboard (Person 3) | Merged; verified in a real browser against the real backend |
-| Generic runner and per-workflow maps | `contracts/workflows/<id>.json` + `contracts/selectors/<id>.json`; the runner navigates to the map's `target_url`; two workflows (`permit-application`, `record-update`) on one backend |
+| Generic runner and per-workflow maps | `contracts/workflows/<id>.json` + `contracts/selectors/<id>.json`; the runner navigates to the map's `target_url`; four workflows on one backend (`permit-application`, `record-update`, and the public `wikipedia-article`, `python-latest-release`) |
 | Read healing | A broken read selector is repaired from the values the agent saw, verified by replay and the canary |
 | Crash recovery, pruning | `state/inflight-<wf>.json` marker restored at startup; `runs/` keeps the newest 50 |
 | Write workflows (local sites only) | Shipped with a guard, a sandbox site, and a login-wall fail-fast |

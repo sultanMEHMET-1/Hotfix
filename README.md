@@ -65,6 +65,14 @@ VITE_USE_MOCKS=false VITE_SENTRY_ORG=<your-sentry-org> npm run dev   # or put th
 Open the dashboard at http://127.0.0.1:5173 and the portal at http://127.0.0.1:3000/permits/apply.
 Without a `SENTRY_DSN` everything still runs; Sentry is just off.
 
+## Public sites
+
+Two read-only workflows run against the real Wikipedia and python.org, with no setup beyond the venv: pick
+**Wikipedia** (type an article title, read its heading) or **Python releases** (read the newest release) in the
+dashboard. They show the fast path on sites we do not own. Their live checks are opt-in and free:
+`MENDER_PUBLIC_TEST=1 ... -m unittest services.backend.tests.test_public_sites`. You cannot use Chaos Mode on a site you
+do not own, and writes are never allowed on them.
+
 ## The demo
 
 1. Pick a workflow (the picker lists what the backend can run), then **Trigger workflow** in the dashboard: the fast path, about 0.4 s, "Deterministic Playwright".

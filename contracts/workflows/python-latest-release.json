@@ -1,0 +1,43 @@
+{
+  "goal": "Open the python.org downloads page and report the newest Python release.",
+  "steps": [
+    {
+      "field": "downloads_link",
+      "action_type": "click",
+      "role": "link",
+      "label": "Downloads"
+    }
+  ],
+  "outputs": {
+    "release": {
+      "field": "latest_release",
+      "read": "text"
+    }
+  },
+  "params_schema": {
+    "type": "object",
+    "required": [],
+    "additionalProperties": false,
+    "properties": {}
+  },
+  "output_schema": {
+    "type": "object",
+    "required": [
+      "release"
+    ],
+    "additionalProperties": false,
+    "properties": {
+      "release": {
+        "type": "string",
+        "description": "the newest release listed, for example Python 3.15.0"
+      }
+    }
+  },
+  "canary": {
+    "params": {},
+    "expected_output": {
+      "release": "Python 3.15.0"
+    }
+  },
+  "mutates": false
+}

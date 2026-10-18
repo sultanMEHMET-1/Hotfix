@@ -32,6 +32,10 @@ const MOCK_WORKFLOWS: WorkflowSummary[] = [
   DEFAULT_WORKFLOW,
   { id: "record-update", goal: "Edit a record and report the saved value.", mutates: true, default: false, params_schema: {},
     example_params: { record_id: "canary-record", value: "canary-value" } },
+  { id: "wikipedia-article", goal: "Search Wikipedia for an article title and report its heading.", mutates: false, default: false,
+    params_schema: {}, example_params: { title: "Alan Turing" } },
+  { id: "python-latest-release", goal: "Open the python.org downloads page and report the newest Python release.", mutates: false,
+    default: false, params_schema: {}, example_params: {} },
 ];
 
 /** The workflows the backend can run (default first). Mock mode returns two canned ones. */

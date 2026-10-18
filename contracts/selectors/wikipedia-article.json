@@ -1,0 +1,10 @@
+{
+  "workflow_id": "wikipedia-article",
+  "target_url": "https://en.wikipedia.org/wiki/Main_Page",
+  "version": 1,
+  "fields": {
+    "search_box": "#searchInput",
+    "search_button": "#searchform button.cdx-search-input__end-button",
+    "article_heading": "#firstHeading"
+  }
+}
