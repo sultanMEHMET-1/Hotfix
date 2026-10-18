@@ -141,6 +141,13 @@ class GenericExecutorTests(unittest.TestCase):
         self.assertEqual(page.calls, [("goto", "http://site.test/form"), ("fill", "#n", "Ada"), ("click", "#go"),
                                       ("wait_for", "#out", "visible")])  # waits once for a field read twice
 
+    def test_it_reports_where_the_time_goes_for_observability(self):
+        timings = {}
+        page = RecordingPage(texts={"#out": "Done"}, attributes={("#out", "data-code"): "42"})
+        execute_definition(page, self.MAP, self.DEFINITION, {"name": "Ada"}, self.MAP["target_url"], timings)
+        self.assertEqual(sorted(timings), ["goto", "reads", "steps"])
+        self.assertTrue(all(value >= 0 for value in timings.values()))
+
     def test_each_failure_names_the_step_and_selector_the_backend_can_repair(self):
         for fail_on, step, selector in (("navigation", "navigation", "http://site.test/form"), ("#n", "name_input", "#n"),
                                         ("#go", "go", "#go")):

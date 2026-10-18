@@ -135,16 +135,23 @@ def execute_definition(
     definition: dict[str, Any],
     params: dict[str, Any],
     target_url: str,
+    timings: dict[str, float] | None = None,
 ) -> dict[str, str]:
-    """Run any workflow: open the page, perform the ordered steps, then read each output."""
+    """Run any workflow: open the page, perform the ordered steps, then read each output.
 
+    If `timings` is given it receives goto, steps and reads in milliseconds, for observability.
+    """
+
+    timings = timings if timings is not None else {}
     fields = selector_map["fields"]
     page.set_default_timeout(PER_STEP_TIMEOUT_MS)
     page.set_default_navigation_timeout(PER_STEP_TIMEOUT_MS)
+    mark = perf_counter()
     try:
         page.goto(target_url, wait_until="domcontentloaded")
     except Exception as error:
         raise WorkflowFailure("navigation", target_url, error) from error
+    timings["goto"], mark = (perf_counter() - mark) * 1000, perf_counter()
 
     for step in definition["steps"]:
         selector = _selector(fields, step["field"])
@@ -157,6 +164,7 @@ def execute_definition(
         except Exception as error:
             raise WorkflowFailure(step["field"], selector, error) from error
 
+    timings["steps"], mark = (perf_counter() - mark) * 1000, perf_counter()
     result: dict[str, str] = {}
     visible: set[str] = set()
     for key, spec in definition["outputs"].items():
@@ -177,6 +185,7 @@ def execute_definition(
         except Exception as error:
             raise WorkflowFailure(spec["field"], selector, error) from error
         result[key] = value
+    timings["reads"] = (perf_counter() - mark) * 1000
     return result
 
 
@@ -337,20 +346,27 @@ def main(argv: list[str] | None = None) -> int:
     target_url = args.target_url or selector_map["target_url"]
     try:
         with sync_playwright() as playwright:
+            process_started = perf_counter()
             browser = playwright.chromium.launch(
                 headless=not args.headed, executable_path=os.environ.get("MENDER_BROWSER_EXECUTABLE") or None)
+            timings: dict[str, float] = {}
             try:
                 page = browser.new_page()
+                timings["launch"] = (perf_counter() - process_started) * 1000
                 try:
                     workflow_started = perf_counter()
-                    result = execute_definition(page, selector_map, definition, params, target_url)
+                    result = execute_definition(page, selector_map, definition, params, target_url, timings)
                 except WorkflowFailure as failure:
+                    timings["total"] = (perf_counter() - process_started) * 1000
+                    print(f"runner_timings_ms={json.dumps({k: round(v, 1) for k, v in timings.items()})}", file=sys.stderr)
                     payload_path = write_failure_artifacts(page, selector_map, failure, artifacts_dir, screenshot_name)
                     print(f"runner failed: {failure}; wrote {payload_path}", file=sys.stderr)
                     return 1
                 elapsed_ms = (perf_counter() - workflow_started) * 1000
+                timings["total"] = (perf_counter() - process_started) * 1000
                 print(json.dumps(result))
                 print(f"workflow_latency_ms={elapsed_ms:.2f}", file=sys.stderr)
+                print(f"runner_timings_ms={json.dumps({k: round(v, 1) for k, v in timings.items()})}", file=sys.stderr)
                 return 0
             finally:
                 browser.close()

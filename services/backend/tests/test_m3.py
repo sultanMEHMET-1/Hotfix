@@ -372,6 +372,13 @@ class M3Tests(M2Harness):
         self.assertAlmostEqual(data["recovery.cost_usd"], 0.002)
         self.assertEqual((data["recovery.invocations"], data["recovery.total_tokens"], data["recovery.success"]), (2, 24, True))
 
+    def test_runner_phase_timings_are_parsed_and_malformed_ones_ignored(self):
+        from services.backend.runner import parse_timings
+        good = 'noise\nworkflow_latency_ms=1.0\nrunner_timings_ms={"launch": 250.5, "goto": 30, "total": 400.0, "bad": "x"}\n'
+        self.assertEqual(parse_timings(good), {"launch": 250.5, "goto": 30.0, "total": 400.0})
+        self.assertEqual(parse_timings("runner_timings_ms={not json"), {})
+        self.assertEqual(parse_timings("no timings here"), {})
+
     # Safety
 
     async def test_error_messages_are_safe_to_show(self):
