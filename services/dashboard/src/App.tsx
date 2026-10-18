@@ -22,6 +22,8 @@ export default function App() {
   const [scenario, setScenario] = useState<MockScenario>("fast");
   const [workflows, setWorkflows] = useState<WorkflowSummary[]>([DEFAULT_WORKFLOW]);
   const [workflowId, setWorkflowId] = useState(DEFAULT_WORKFLOW.id);
+  // Per workflow: corrections from runs before this time are hidden (cleared by hand, or undone by a selector reset).
+  const [clearedAt, setClearedAt] = useState<Record<string, number>>({});
   const workflow = workflows.find((w) => w.id === workflowId) ?? workflows[0];
   const { phase, result, error, benchmarks, history, trigger } = useWorkflowRun(mocksOn, workflow.id);
 
@@ -76,6 +78,7 @@ export default function App() {
                 workflows={workflows}
                 workflowId={workflow.id}
                 onWorkflowChange={setWorkflowId}
+                onReset={() => setClearedAt((c) => ({ ...c, [workflow.id]: Date.now() }))}
               />
             </BlurFade>
 
@@ -96,7 +99,13 @@ export default function App() {
             )}
 
             <ScrollReveal><BenchmarkSummary benchmarks={benchmarks} sample={sample} /></ScrollReveal>
-            <ScrollReveal><VisualDiffViewer phase={phase} result={result} /></ScrollReveal>
+            <ScrollReveal>
+              <VisualDiffViewer
+                phase={phase} result={result} history={history} workflowId={workflow.id}
+                since={clearedAt[workflow.id] ?? 0}
+                onClear={() => setClearedAt((c) => ({ ...c, [workflow.id]: Date.now() }))}
+              />
+            </ScrollReveal>
             <ScrollReveal><RunLog history={history} /></ScrollReveal>
           </main>
         </div>

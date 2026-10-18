@@ -24,13 +24,15 @@ export interface ControlRowProps {
   workflows: WorkflowSummary[];
   workflowId: string;
   onWorkflowChange: (id: string) => void;
+  /** Called after the selected workflow's selectors were restored, so repairs listed on the page no longer apply. */
+  onReset?: () => void;
 }
 
 const SECONDARY =
   "min-h-[44px] rounded-panel border-[1.5px] border-ink bg-surface px-4 font-display text-sm transition-colors hover:bg-surface-subtle disabled:cursor-not-allowed disabled:opacity-50";
 
 export default function ControlRow({
-  phase, result, scenario, onScenarioChange, onTrigger, mocksOn, onToggleMocks, workflows, workflowId, onWorkflowChange,
+  phase, result, scenario, onScenarioChange, onTrigger, mocksOn, onToggleMocks, workflows, workflowId, onWorkflowChange, onReset,
 }: ControlRowProps) {
   const running = phase === "running-fast" || phase === "running-healing";
   const state = badgeState(phase, result);
@@ -66,7 +68,7 @@ export default function ControlRow({
               ))}
             </div>
           ) : (
-            <ResetButton disabled={running} workflow={workflowId} />
+            <ResetButton disabled={running} workflow={workflowId} onReset={onReset} />
           )}
         </div>
       </div>

@@ -3,7 +3,7 @@ import { resetDemo } from "../api/client";
 import Tooltip from "./Tooltip";
 
 /** Rehearsal reset: puts the original selectors back so Chaos Mode can break them again. */
-export default function ResetButton({ disabled, workflow }: { disabled: boolean; workflow?: string }) {
+export default function ResetButton({ disabled, workflow, onReset }: { disabled: boolean; workflow?: string; onReset?: () => void }) {
   const [pending, setPending] = useState(false);
   const [note, setNote] = useState<{ text: string; ok: boolean } | null>(null);
 
@@ -12,6 +12,7 @@ export default function ResetButton({ disabled, workflow }: { disabled: boolean;
     setNote(null);
     try {
       const { version, blocked } = await resetDemo(workflow);
+      onReset?.();
       // The file is restored, but a backend that blocked itself (for example after a failed rollback) stays blocked.
       setNote(blocked
         ? { text: `Selectors restored (v${version}), but the backend is blocked: ${blocked}`, ok: false }
