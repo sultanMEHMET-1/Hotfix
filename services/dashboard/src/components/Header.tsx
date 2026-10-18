@@ -41,7 +41,7 @@ export default function Header({ theme, onToggleTheme }: HeaderProps) {
       transition={{ duration: 0.4, ease: "easeOut" }}
     >
       <div className="mx-auto flex h-16 w-full max-w-[1180px] items-center justify-between gap-4 px-5 sm:px-9">
-        <span className="font-display text-xl tracking-tight">Mender</span>
+        <span className="cursor-default select-none font-display text-xl tracking-tight">Mender</span>
         <Tooltip label={isDark ? "Switch to light" : "Switch to dark"} align="end">
           <button type="button" onClick={onToggleTheme} aria-label={label} className="grid h-11 w-11 place-items-center text-ink-muted transition-colors hover:text-ink">
             <span className="relative grid h-5 w-5 place-items-center">
