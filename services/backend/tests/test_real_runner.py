@@ -101,7 +101,7 @@ class RealRunnerTests(unittest.TestCase):
         started = time.perf_counter()
         payload = self.request().json()
         self.assertEqual(payload["status"], "success")
-        self.assertEqual(payload["data"], {"status": "Approved", "inspector": "Davis"})
+        self.assertEqual(payload["data"], {"status": "Approved", "inspector": "Davis", "permit_id": PARAMS["permit_id"]})
         self.assertFalse(payload["recovery_attempted"])
         print(f"real fast path request: {(time.perf_counter() - started) * 1000:.0f} ms")
 

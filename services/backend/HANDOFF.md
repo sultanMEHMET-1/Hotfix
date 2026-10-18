@@ -202,55 +202,51 @@ forcing every ordered-step position to zero made the two-field test fail.
 Both expected failures were detected, proving those acceptance checks can reject
 broken implementations. Mutation patches were removed before normal verification.
 
-## Integration with Person 1's real runner (phase-1, merged locally)
+## Integration with Person 1's real runner (phase-1, merged)
 
-`origin/phase-1` (portal + runner) is merged into this branch. Real-runner coverage
-is [tests/test_real_runner.py](tests/test_real_runner.py), opt in with
-`MENDER_REAL_RUNNER=1` after `services/runner/setup_venv.sh`. It starts its own portal
-on a free port, drives the real Playwright runner through a test-only CLI shim
-([fixtures/real_runner_shim.py](tests/fixtures/real_runner_shim.py)), and uses the
-backend-owned definition [workflows/permit-application.json](workflows/permit-application.json).
+`origin/phase-1` (portal + runner) is merged into this branch and the stack runs end to
+end. Cross-owner edits were made at the backend owner's request, each in its own commit
+so Person 1 and the contracts owner can review or revert them:
 
-Results: 3 free tests passed (fast path 399 ms through the shim including Chromium
-start; chaos heal with real replay and canary; cooldown hit using real failure
-artifacts). One paid test passed: real Gemini healed the real portal in 28.5 s
-(agent 21.7 s, 31,993 tokens, $0.0308 SDK estimate), selector
-`button[data-action="submit"]`, record committed 1->2, next request plain success.
+1. `services/runner/execute.py`: accepts the agreed `--workflow --params --run-id`
+   (plus `--sentry-trace`, `--baggage`) and writes `runs/<run_id>/failure_payload.json`
+   and `failure.png`. The old flags still work. Person 1's `test_execute.py` passes.
+2. `contracts/selectors.json`: `target_url` is `http://127.0.0.1:3000/permits/apply`
+   (was `portal.example.gov`, which made the backend reject every failure as
+   `unexpected_page`). Only that field changed.
+3. `services/runner/reset_demo.py`: resets through the backend's locked
+   `POST /api/v1/admin/reset` when the backend is up (refusal during a recovery is an
+   error, never a bypass); edits the file directly only when no backend is listening.
+4. Portal and runner: the portal echoes the submitted permit id in the status badge
+   and the runner returns it as `permit_id`. The canary now compares it, so a repair
+   that fills or reads the wrong thing no longer returns the expected output.
 
-Found and fixed here: the portal randomizes the submit button class on every load and
-the runner's `dom_snippet` embeds it, so identical failures never matched the cooldown.
-`cooldown_key` now ignores `class` attributes (the backend never selects on classes).
-The cooldown test fails without this change.
+Real-runner coverage is [tests/test_real_runner.py](tests/test_real_runner.py), opt in
+with `MENDER_REAL_RUNNER=1` after `services/runner/setup_venv.sh`. It starts its own
+portal on a free port and runs the real runner through a thin wrapper
+([fixtures/real_runner_shim.py](tests/fixtures/real_runner_shim.py)) that only adds
+`--selectors` and `--target-url` for the temp root. The workflow definition is
+[workflows/permit-application.json](workflows/permit-application.json).
 
-Full-stack proof (scratch copy with both proposals applied, no shim): real portal,
-real runner, backend served by uvicorn, real Gemini. `python -m services.backend.rehearse 5`
-passed **5 of 5** loops (reset, fast, Chaos Mode, heal, fast). Fast path 371-376 ms
-over HTTP. Heals took 21.5-32.8 s, agent time 17.5-27.5 s, SDK cost $0.029-$0.031 each,
-every record committed, versions monotonic (reset to 2, 4, 6, 8, 10; heals to 3, 5, 7, 9, 11).
-Requires the two patches in [proposals/](proposals/README.md), which this branch does not apply.
+Results: 3 free tests passed (fast path; chaos heal with real replay and canary;
+cooldown hit using real failure artifacts) and one paid test (real Gemini healed the
+real portal). The portal randomizes the submit button class on every load and the
+runner's `dom_snippet` embeds it, so `cooldown_key` ignores `class` attributes; the
+cooldown test fails without that.
 
-Gaps that need Person 1 or the contracts owner (not worked around in production code).
-Items 1 to 3 have verified patches in `proposals/`:
+Full-stack proof (scratch copy of this branch, no wrapper): real portal, real runner,
+backend served by uvicorn, real Gemini. `python -m services.backend.rehearse 5` passed
+**5 of 5** loops (reset, fast, Chaos Mode, heal, fast), twice (before and after the
+canary change). Latest run: fast path 366-375 ms over HTTP; heals 24.3-29.9 s, agent
+time 20.2-25.8 s, SDK cost $0.028-$0.032; every record committed; versions monotonic.
+`reset_demo.py` was verified against the live backend and with the backend stopped.
 
-1. **Runner CLI.** `execute.py` takes `--permit-id --applicant-name --selectors
-   --target-url --artifacts-dir`, not the agreed `--workflow --params --run-id`. Run
-   as-is, the backend gets a usage error and no artifact. Interim bridge: set
-   `MENDER_RUNNER_SCRIPT` to the shim plus `REAL_RUNNER_PYTHON`, `REAL_RUNNER_SCRIPT`,
-   `REAL_PORTAL_URL`, `REAL_PLAYWRIGHT_BROWSERS`. Real fix: runner adopts the CLI.
-2. **Artifact location.** Real: `runner/artifacts/failure_payload.json` and
-   `failure_latest.png`, overwritten each run. Agreed: `runs/<run_id>/failure.png`.
-3. **Target URL.** `contracts/selectors.json` says `https://portal.example.gov/...`;
-   the runner ignores it and defaults to `127.0.0.1:3000`. The backend rejects the
-   failure as `unexpected_page`. Contracts owner must set the real `target_url`.
-4. **`runner/reset_demo.py`** writes `selectors.json` with no lock and `version + 1`,
-   bypassing the backend lock protocol. Use `POST /api/v1/admin/reset` instead, or
-   only run it with the backend stopped.
-5. **Weak canary.** The portal returns Approved / Davis for any input, so the canary
-   cannot detect a wrong-record heal. Protection is replay: a wrong click leaves
-   `status_badge` missing, which is not an ordered step, so recovery aborts and rolls
-   back (`unmapped_step`).
-6. **Read step.** `status_badge` is read by the runner but is not an agent-healable
-   step. Chaos Mode only breaks `submit_button`, so this does not bite the demo.
+Remaining integration notes:
+
+- `status_badge` is read by the runner but is not an agent-healable step. Chaos Mode only
+  breaks `submit_button`, so this does not affect the demo.
+- The runner still defaults its URL to `127.0.0.1:3000` instead of reading the selector
+  map's `target_url`; they now agree, but they are two sources of truth.
 
 ## Remaining limits
 
@@ -269,8 +265,6 @@ Items 1 to 3 have verified patches in `proposals/`:
 - Subprocess stdout/stderr are buffered in memory. Output-volume limits and load
   testing are not implemented. Read-only result extraction and iframes remain
   unsupported; duplicate/dynamic labels may explicitly fail grounding.
-- The real runner does not speak the agreed CLI until `proposals/runner-backend-cli.patch`
-  is applied, and recovery cannot start until `contracts-target-url.patch` is applied.
 - Operator endpoints trust the socket peer address (loopback). Bind uvicorn to 127.0.0.1
   and do not put a proxy in front that forwards `/api/v1/admin/*` or `/api/v1/status`.
 - Live Sentry delivery is still unverified; no DSN was available in these runs.

@@ -25,7 +25,7 @@ for i in range(1, int(sys.argv[1] if len(sys.argv) > 1 else 5) + 1):
     heal, th = run()
     after, ta = run()
     rec = [(r["verification_outcome"], r["version_before"], r.get("version_after")) for r in heal.get("heal_records", [])]
-    ok = (fast["status"] == "success" and heal["status"] == "healed" and heal["data"] == {"status": "Approved", "inspector": "Davis"}
+    ok = (fast["status"] == "success" and heal["status"] == "healed" and heal["data"] == {"status": "Approved", "inspector": "Davis", "permit_id": P["params"]["permit_id"]}
           and after["status"] == "success" and rec and all(x[0] == "committed" for x in rec))
     rows.append(ok)
     print(f"loop {i}: reset v{reset['version']} | fast {tf*1000:.0f} ms {fast['status']} | heal {th:.1f} s {heal['status']} "

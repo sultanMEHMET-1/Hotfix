@@ -9,7 +9,7 @@ Mender is a hackathon project (LA Hacks, AI track, 24 hours, software only). It 
 
 ## Who owns what
 - Person 1: /services/portal and /services/runner. Person 3: /services/dashboard. Person 2 (the user, who you work for): /services/backend. /contracts holds shared interfaces.
-- You author code only under /services/backend. Never edit /contracts or others' folders. The one exception: runtime updates of selectors.json (including version bump) by the healer. Contract docs or fixture changes go in a separate commit as proposals for the contracts owner.
+- You author code only under /services/backend. Never edit /contracts or others' folders. The one exception: runtime updates of selectors.json (including version bump) by the healer. Contract docs or fixture changes go in a separate commit as proposals for the contracts owner. The user once authorized cross-owner fixes (the runner CLI, selectors.json target_url, reset_demo.py, portal permit echo) with "fix everything first"; those are in their own commits for the owners to review. Do not repeat that without a fresh instruction.
 - Branch: codex/browser-use-recovery. Push only to it. Never merge to main.
 
 ## Prize tracks the demo must support
@@ -66,4 +66,4 @@ Run from the repository root with Python 3.12 and uv.
 - Run guide: README.md. Agent handoff and invariants: HANDOFF.md. Agent rules: AGENTS.md.
 
 ## Current state
-M1, M2 and M3 are implemented on codex/browser-use-recovery (M3 commit ad8b0e5, PR #1 open against main). origin/phase-1 (Person 1's portal and runner) is merged into the branch locally and tested through a test-only CLI shim; the real runner does not yet speak the agreed CLI. Patches that remove the gap are in services/backend/proposals/ (verified: 5/5 full-stack demo loops with `python -m services.backend.rehearse 5`). See HANDOFF.md, "Integration with Person 1's real runner". Default suite: 88 tests, OK, 11 opt-in skipped. Verify actual repo state yourself before trusting this paragraph. HANDOFF.md in /services/backend is the source of truth.
+M1, M2 and M3 are implemented on codex/browser-use-recovery (M3 commit ad8b0e5, PR #1 open against main). origin/phase-1 (Person 1's portal and runner) is merged; the runner now speaks the agreed CLI, contracts/selectors.json target_url is the real portal, reset_demo.py goes through the backend, and the portal echoes the permit id for a meaningful canary (cross-owner edits are in their own commits for review). Full-stack check: `python -m services.backend.rehearse 5` passed 5/5 with real Gemini. See HANDOFF.md, "Integration with Person 1's real runner". Default suite: 88 tests, OK, 11 opt-in skipped. Verify actual repo state yourself before trusting this paragraph. HANDOFF.md in /services/backend is the source of truth.

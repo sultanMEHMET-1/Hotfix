@@ -40,7 +40,8 @@
     "type": "object",
     "required": [
       "status",
-      "inspector"
+      "inspector",
+      "permit_id"
     ],
     "additionalProperties": false,
     "properties": {
@@ -48,6 +49,9 @@
         "type": "string"
       },
       "inspector": {
+        "type": "string"
+      },
+      "permit_id": {
         "type": "string"
       }
     }
@@ -59,7 +63,8 @@
     },
     "expected_output": {
       "status": "Approved",
-      "inspector": "Davis"
+      "inspector": "Davis",
+      "permit_id": "PERMIT-2026-0042"
     }
   }
 }
