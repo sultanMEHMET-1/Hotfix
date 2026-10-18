@@ -19,7 +19,7 @@ from fastapi.testclient import TestClient
 from contracts.api_types import HealEvidence
 from services.backend.config import write_allowed
 from services.backend.healer import Candidate, read_selector_expression
-from services.backend.sandbox.records_site import SEEDS
+from services.backend.sandbox.records_site import SEEDS, SEED_DETAILS, stock
 from services.backend.main import create_app
 from services.backend.tests.test_m1 import CORRECT
 from services.backend.tests.support import make_root
@@ -29,6 +29,19 @@ ROOT = Path(__file__).resolve().parents[3]
 SAVE = 'button[data-action="save"]'
 
 RECORD_UPDATE = json.loads((ROOT / "contracts/workflows/record-update.json").read_text())
+
+
+class SeedInventoryTests(unittest.TestCase):
+    def test_twelve_prices_and_stock_boundaries(self):
+        self.assertEqual(set(SEEDS), {f"SKU-{number}" for number in range(1042, 1054)})
+        self.assertEqual({key: SEEDS[key] for key in ("SKU-1042", "SKU-1043", "SKU-1044")},
+                         {"SKU-1042": "19.95", "SKU-1043": "8.50", "SKU-1044": "42.00"})
+        self.assertEqual(set(SEED_DETAILS), set(SEEDS))
+        for value in SEEDS.values():
+            self.assertRegex(value, r"^\d+\.\d{2}$")
+        for quantity, expected in ((0, "Out"), (1, "Low"), (4, "Low"), (5, "In stock")):
+            self.assertEqual(stock(quantity), expected)
+        self.assertTrue({0, 1, 4, 5}.issubset({item["quantity"] for item in SEED_DETAILS.values()}))
 
 
 class WriteGuardTests(unittest.TestCase):
@@ -136,13 +149,14 @@ class SandboxSiteTests(unittest.TestCase):
 
     def test_table_updates_inserts_and_observes_runner_writes_without_losing_input(self):
         page = self.page()
-        self.expect(page.locator("#records-body tr")).to_have_count(len(SEEDS))
+        self.expect(page.locator("#records-body tr")).to_have_count(8)
         self.save(page, "SKU-1042", "21.00")
         self.expect(page.locator("#records-body")).to_contain_text("Value: 21.00")
-        self.expect(page.locator("#records-body tr")).to_have_count(len(SEEDS))
+        self.expect(page.locator("#records-body tr")).to_have_count(8)
         self.save(page, "new-record", "hello")
         self.save(page, "new-record", "hello")
-        self.expect(page.locator("#records-body tr")).to_have_count(len(SEEDS) + 1)
+        self.assertEqual(len(self.state()["records"]), len(SEEDS) + 1)
+        self.expect(page.locator("#records-body tr")).to_have_count(8)
         self.assertEqual(self.state()["writes"], 3)
         page.reload()
         self.expect(page.locator("#records-body")).to_contain_text("Value: hello")
@@ -190,13 +204,16 @@ class SandboxSiteTests(unittest.TestCase):
         self.expect(page.locator("#chaos-modal")).to_be_visible()
         self.post("/reset", {})
         self.expect(page.locator("#last-saved")).to_have_text("Last saved: No changes yet")
-        self.expect(page.locator("#records-body tr")).to_have_count(len(SEEDS))
+        self.expect(page.locator("#records-body tr")).to_have_count(8)
         self.expect(page.locator("#records-body")).to_contain_text("Value: 19.95")
         self.expect(page.locator("#result")).to_be_hidden()
         self.expect(page.locator("#save-btn")).to_be_visible()
         self.expect(page.get_by_role("textbox", name="Search records")).to_have_count(0)
-        self.assertEqual(self.state(), {"records": SEEDS, "writes": 0, "last_saved": None,
-                                       "chaos": False, "hard": False, "read": False})
+        state = self.state()
+        self.assertEqual(state["records"], SEEDS)
+        self.assertEqual(state["inventory"], SEED_DETAILS)
+        self.assertEqual((state["writes"], state["last_saved"], state["audit"], state["supplier_note"]), (0, None, [], None))
+        self.assertEqual((state["chaos"], state["hard"], state["read"], state["reset_generation"]), (False, False, False, 1))
 
     def test_literal_values_remain_safe_and_the_real_read_probe_is_unique(self):
         page = self.page()
@@ -209,6 +226,8 @@ class SandboxSiteTests(unittest.TestCase):
         self.assertFalse(page.evaluate("texts => [...document.querySelectorAll('*')].some(node => [...node.attributes].some(attr => texts.some(text => attr.value.includes(text))))", [record, value]))
         self.assertNotIn(value, page.locator("script").inner_text())
         page.reload()
+        self.expect(page.locator("#sync-status")).to_contain_text("Inventory connected")
+        page.get_by_label("Filter inventory").fill(record)
         self.expect(page.locator("#records-body")).to_contain_text(value)
         self.assertEqual(page.locator("img").count(), 0)
         self.post("/chaos", {"enabled": False, "read": True})
@@ -278,6 +297,142 @@ class SandboxSiteTests(unittest.TestCase):
         self.assertLess(len(before), 1500)
         self.assertNotIn("Last saved", before)
         self.assertNotIn("outside-value", before)
+
+    def test_committed_selectors_are_isolated_from_the_other_controls(self):
+        page = self.page()
+        for modes in ({"enabled": False}, {"enabled": True, "hard": True},
+                      {"enabled": False, "read": True}, {"enabled": True, "hard": True, "read": True}):
+            with self.subTest(modes=modes):
+                self.post("/chaos", modes)
+                self.expect(page.locator("#chaos-toggle")).to_have_attribute("aria-pressed", str(modes["enabled"]).lower())
+                self.expect(page.locator("#out-value")).to_have_attribute("data-testid", "result-value" if modes.get("read") else "saved-value")
+                for field, selector in self.baseline["fields"].items():
+                    missing = field == "save_button" and modes["enabled"] or field == "saved_value" and modes.get("read")
+                    self.expect(page.locator(selector)).to_have_count(0 if missing else 1)
+                self.expect(page.locator(SAVE)).to_have_count(1 if modes["enabled"] else 0)
+                self.assertEqual(page.locator("form").count(), 1)
+                for label in ("Record ID", "New value"):
+                    self.assertEqual(page.get_by_role("textbox", name=label, exact=True).count(), 1)
+                self.assertEqual(page.get_by_role("button", name="Save record", exact=True).count(), 1)
+
+    def test_navigation_pagination_and_numeric_sort(self):
+        page = self.page()
+        self.expect(page.locator("#inventory-count")).to_have_text("12 records / Page 1 of 2")
+        page.locator("#next-page").click()
+        self.expect(page.locator("#records-body tr")).to_have_count(4)
+        self.expect(page.locator("#next-page")).to_be_disabled()
+        page.locator("#previous-page").click()
+        self.expect(page.locator("#records-body tr")).to_have_count(8)
+        self.expect(page.locator("#previous-page")).to_be_disabled()
+        page.get_by_role("button", name="Sort by Price", exact=True).click()
+        self.expect(page.locator("#records-body tr").first).to_contain_text("Value: 2.40")
+        page.get_by_role("button", name="Sort by Price", exact=True).click()
+        self.expect(page.locator("#records-body tr").first).to_contain_text("Value: 42.00")
+        page.get_by_label("Filter inventory").fill("no-match-here")
+        self.expect(page.locator("#records-body tr")).to_have_count(0)
+        self.expect(page.locator("#inventory-empty")).to_be_visible()
+        self.expect(page.locator("#inventory-count")).to_have_text("0 records / Page 1 of 1")
+        page.get_by_label("Filter inventory").fill("SKU-1053")
+        self.expect(page.locator("#records-body tr")).to_have_count(1)
+        for label, heading in (("Orders", "Open orders"), ("Suppliers", "Supplier directory"), ("Reports", "Operations reports")):
+            page.get_by_role("link", name=label, exact=True).click()
+            self.expect(page.get_by_role("heading", name=heading, exact=True)).to_be_visible()
+            page.get_by_role("link", name="Inventory", exact=True).click()
+            self.expect(page.locator("#sync-status")).to_contain_text("Inventory connected")
+
+    def test_external_save_reveals_filtered_record_and_does_not_keep_changing_pages(self):
+        page = self.page()
+        page.locator("#next-page").click()
+        page.get_by_label("Filter inventory").fill("safety")
+        page.get_by_label("Category", exact=True).select_option("Safety")
+        page.get_by_role("button", name="Sort by Price", exact=True).click()
+        page.locator("#record-id").fill("unfinished-id")
+        page.locator("#record-value").fill("unfinished-value")
+        payload = self.request("SKU-1042", "3.00")
+        self.assertEqual(payload["status"], "success", payload)
+        self.expect(page.locator("#records-body")).to_contain_text("Value: 3.00")
+        self.expect(page.get_by_label("Filter inventory")).to_have_value("")
+        self.expect(page.get_by_label("Category", exact=True)).to_have_value("")
+        self.expect(page.locator("#record-id")).to_have_value("unfinished-id")
+        self.expect(page.locator("#record-value")).to_have_value("unfinished-value")
+        page.locator("#next-page").click()
+        self.expect(page.locator("#inventory-count")).to_contain_text("Page 2 of 2")
+        with page.expect_response("**/state"):
+            pass
+        self.expect(page.locator("#inventory-count")).to_contain_text("Page 2 of 2")
+        page.get_by_label("Filter inventory").fill("no-match-here")
+        page.get_by_label("Category", exact=True).select_option("Tools")
+        self.save(page, "custom-item", "custom-value")
+        self.expect(page.locator("#records-body")).to_contain_text("Value: custom-value")
+        self.assertEqual(self.state()["inventory"]["custom-item"], {"name": "Custom record", "category": "Other", "quantity": 0})
+
+    def test_unchanged_polls_preserve_inventory_and_audit_nodes(self):
+        page = self.page()
+        self.save(page, "SKU-1042", "19.95")
+        self.expect(page.locator("#audit-body tr")).to_have_count(1)
+        page.evaluate("""() => { window.inventoryRow = document.querySelector('#records-body tr');
+            window.auditRow = document.querySelector('#audit-body tr'); window.saveButton = document.querySelector('#save-btn'); }""")
+        for _ in range(2):
+            with page.expect_response("**/state"):
+                pass
+        self.assertTrue(page.evaluate("""() => window.inventoryRow === document.querySelector('#records-body tr') &&
+            window.auditRow === document.querySelector('#audit-body tr') && window.saveButton === document.querySelector('#save-btn')"""))
+        self.post("/supplier-note", {"supplier": "SUP-017", "note": "Delivery Friday"})
+        with page.expect_response("**/state"):
+            pass
+        self.assertTrue(page.evaluate("() => window.inventoryRow === document.querySelector('#records-body tr')"))
+
+    def test_audit_is_bounded_and_repeated_price_saves_are_safe(self):
+        page = self.page()
+        for value in ("20.00", "20.00", "21.00", "22.00", "23.00", "24.00", "25.00"):
+            self.post("/records", {"record_id": "SKU-1042", "value": value})
+        state = self.state()
+        self.assertEqual(state["writes"], 7)
+        self.assertEqual(len(state["records"]), 12)
+        self.assertEqual(len(state["audit"]), 5)
+        self.assertEqual((state["audit"][0]["old_value"], state["audit"][0]["new_value"]), ("24.00", "25.00"))
+        self.expect(page.locator("#audit-body tr")).to_have_count(5)
+        self.post("/reset", {})
+        self.expect(page.locator("#audit-body tr")).to_have_count(0)
+        self.assertEqual(self.state()["records"], SEEDS)
+        self.assertEqual(self.state()["audit"], [])
+
+    def test_note_form_and_reset_are_independent_of_price_writes(self):
+        page = self.page()
+        frame = page.frame_locator("#supplier-note-frame")
+        frame.get_by_label("Supplier reference").fill("SUP-017")
+        frame.get_by_label("Supplier note", exact=True).fill("Check next delivery")
+        frame.get_by_role("button", name="Attach note").click()
+        self.expect(frame.locator("#note-result")).to_contain_text("Note attached")
+        state = self.state()
+        self.assertEqual((state["records"], state["writes"], state["audit"]), (SEEDS, 0, []))
+        self.assertEqual(state["supplier_note"], {"supplier": "SUP-017", "note": "Check next delivery"})
+        page.get_by_label("Filter inventory").fill("no-match-here")
+        page.get_by_label("Category", exact=True).select_option("Safety")
+        self.post("/reset", {})
+        self.expect(page.get_by_label("Filter inventory")).to_have_value("")
+        self.expect(page.get_by_label("Category", exact=True)).to_have_value("")
+        self.expect(frame.get_by_label("Supplier note", exact=True)).to_have_value("")
+        self.expect(frame.locator("#note-result")).to_have_text("No supplier note attached.")
+        self.assertIsNone(self.state()["supplier_note"])
+
+    def test_real_canary_text_is_unique_after_audit_and_inventory_updates(self):
+        page = self.page()
+        for read in (False, True):
+            self.post("/chaos", {"enabled": False, "read": read})
+            self.expect(page.locator("#out-value")).to_have_attribute("data-testid", "result-value" if read else "saved-value")
+            self.save(page, "canary-record", "canary-value")
+            self.expect(page.locator("#records-body")).to_contain_text("Value: canary-value")
+            self.expect(page.locator("#audit-body")).to_contain_text("New price: canary-value")
+            for value, expected in (("canary-record", "saved-record"), ("canary-value", "result-value" if read else "saved-value")):
+                found = page.evaluate(read_selector_expression((value,)))
+                self.assertEqual((found["count"], found["selector"]), (1, f'span[data-testid="{expected}"]'))
+                count = page.evaluate("value => [...document.body.querySelectorAll('*')].filter(node => (node.innerText || '').replace(/\\s+/g, ' ').trim() === value).length", value)
+                self.assertEqual(count, 1)
+        for value in ("Other", "0", "Low"):
+            self.save(page, "probe-record", value)
+            self.expect(page.locator("#audit-body")).to_contain_text(f"New price: {value}")
+            self.assertEqual(page.evaluate(read_selector_expression((value,)))["count"], 1)
 
     def test_save_works_and_the_site_really_changes(self):
         payload = self.request()

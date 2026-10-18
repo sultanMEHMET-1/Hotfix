@@ -18,7 +18,9 @@ as output). A trial with no reliable cost counts a conservative estimate toward 
 """
 
 import argparse
+import hashlib
 import json
+import math
 import os
 from pathlib import Path
 import statistics
@@ -32,7 +34,7 @@ from urllib.request import Request, urlopen
 from dotenv import load_dotenv
 from fastapi.testclient import TestClient
 
-from services.backend.config import Settings
+from services.backend.config import BackendError, Settings
 from services.backend.main import create_app
 from services.backend.tests.support import make_root
 from services.backend.tests.test_real_runner import DEFINITION as PERMIT_DEFINITION
@@ -79,8 +81,29 @@ SCENARIOS = {
 }
 
 
-def trial(model, scenario, base_url, chrome):
+def sandbox_checks(initial, saved, expanded):
+    expected = {**initial["records"], SANDBOX_PARAMS["record_id"]: SANDBOX_PARAMS["value"],
+                RECORD_UPDATE["canary"]["params"]["record_id"]: RECORD_UPDATE["canary"]["params"]["value"]}
+    checks = {"landed_values": saved["records"] == expected, "write_limit": 0 < saved["writes"] <= 3}
+    if expanded:
+        audit = saved.get("audit")
+        allowed = {SANDBOX_PARAMS["record_id"], RECORD_UPDATE["canary"]["params"]["record_id"]}
+        checks.update(note_untouched="supplier_note" in saved and saved["supplier_note"] is None,
+                      audit_bound=isinstance(audit, list) and len(audit) == min(saved["writes"], 5),
+                      audit_price_only=isinstance(audit, list) and all(
+                          entry["record_id"] in allowed and entry["new_value"] == expected[entry["record_id"]] for entry in audit))
+    return checks
+
+
+async def refuse_followup_diagnosis(*args, **kwargs):
+    raise BackendError("unexpected_recovery", "The benchmark follow-up must remain deterministic")
+
+
+def trial(model, scenario, base_url, chrome, *, condition="candidate"):
     spec = SCENARIOS[scenario]
+    before_followup = after_followup = initial = None
+    followup_wall = None
+    checks = {}
     with tempfile.TemporaryDirectory() as directory:
         root = Path(directory)
         baseline = json.loads((ROOT / f"contracts/selectors/{spec['workflow']}.json").read_text())
@@ -98,44 +121,89 @@ def trial(model, scenario, base_url, chrome):
 
                 if scenario == "sandbox-hard":
                     http(f"{base_url}/reset", {})
+                    initial = http(f"{base_url}/state")
                 http(f"{base_url}/chaos", spec["chaos"])
                 started = time.perf_counter()
                 heal = post()
                 wall = time.perf_counter() - started
-                if "status" not in heal:  # an HTTP error body, for example 503 or 422
+                if "status" not in heal:
                     heal = {"status": "error", "data": {}, "error": {"code": f"http_{heal.get('detail', 'error')}"[:60]}}
                 selector = json.loads(selectors_path.read_text())["fields"][spec["field"]]
-                after = post()
-                after.setdefault("status", "error")
-                landed = http(f"{base_url}/state")["records"] if scenario == "sandbox-hard" else None
+                reports = list((root / "services/backend/state").glob("recovery-*.json"))
+                report = json.loads(reports[0].read_text()) if reports else {"totals": {}, "attempts": []}
+                if initial is not None:
+                    before_followup = http(f"{base_url}/state")
+                    checks = sandbox_checks(initial, before_followup, condition == "candidate")
+                after = {"status": "not_run"}
+                if heal["status"] == "healed":
+                    client.app.state.diagnose = refuse_followup_diagnosis
+                    followup_started = time.perf_counter()
+                    after = post()
+                    followup_wall = round(time.perf_counter() - followup_started, 3)
+                    after.setdefault("status", "error")
+                    checks["deterministic_followup"] = after["status"] == "success" and not after.get("recovery_attempted", False)
+                    checks["followup_output"] = not spec["wrong_output"](after.get("data", {}))
+                    if initial is not None:
+                        after_followup = http(f"{base_url}/state")
+                        checks["followup_write"] = after_followup["writes"] == before_followup["writes"] + 1
+                        checks["followup_values"] = after_followup["records"] == before_followup["records"]
+                        if condition == "candidate":
+                            checks["followup_note"] = after_followup.get("supplier_note", "missing") is None
+                            checks["followup_audit_bound"] = len(after_followup.get("audit", [])) == min(after_followup["writes"], 5)
                 http(f"{base_url}/chaos", {"enabled": False})
-            reports = list((root / "services/backend/state").glob("recovery-*.json"))
-            report = json.loads(reports[0].read_text()) if reports else {"totals": {}, "attempts": []}
     totals = report.get("totals", {})
     committed = [r for r in heal.get("heal_records", []) if r["verification_outcome"] == "committed"]
     ok = (heal["status"] == "healed" and bool(committed) and after["status"] == "success"
-          and not spec["wrong_output"](heal["data"]))
-    if landed is not None:  # a write workflow must really have changed the site
-        ok = ok and landed.get(SANDBOX_PARAMS["record_id"]) == SANDBOX_PARAMS["value"]
-    return {"model": model, "scenario": scenario, "ok": ok, "status": heal["status"],
-            "error": (heal.get("error") or {}).get("code"), "wall_s": round(wall, 1),
-            "invocations": len(report.get("attempts", [])), "selector": selector if ok else None,
-            "quality": selector_quality(selector) if ok else "none", "cost_usd": totals.get("cost_usd"),
+          and not spec["wrong_output"](heal["data"]) and all(checks.values()))
+    return {"model": model, "scenario": scenario, "condition": condition, "ok": ok, "status": heal["status"],
+            "error": (heal.get("error") or {}).get("code"), "wall_s": round(wall, 3),
+            "invocations": len(report.get("attempts", [])), "selector": selector,
+            "quality": selector_quality(selector), "cost_usd": totals.get("cost_usd"),
             "cost_complete": totals.get("cost_usd_complete"), "prompt_tokens": totals.get("prompt_tokens"),
-            "completion_tokens": totals.get("completion_tokens"), "total_tokens": totals.get("total_tokens")}
+            "completion_tokens": totals.get("completion_tokens"), "total_tokens": totals.get("total_tokens"),
+            "heal_records": heal.get("heal_records", []), "output": heal.get("data"),
+            "followup": after, "followup_wall_s": followup_wall,
+            "site_checks": checks, "before_followup": before_followup, "after_followup": after_followup}
+
+
+def valid_cost(cost):
+    return type(cost) in (int, float) and math.isfinite(cost) and cost >= 0
+
+
+def budget_cost(row):
+    cost = row.get("cost_usd")
+    numeric = valid_cost(cost)
+    return cost if numeric and row.get("cost_complete") is True else max(cost if numeric else 0, UNKNOWN_COST_USD)
 
 
 def summarize(rows):
     done = [r for r in rows if r["ok"]]
-    costs = [r["cost_usd"] for r in rows if isinstance(r["cost_usd"], (int, float))]
-    spend = sum(costs)
-    return {"model": rows[0]["model"], "scenario": rows[0]["scenario"], "trials": len(rows), "success": len(done),
-            "rate": round(len(done) / len(rows), 2),
-            "mean_wall_s": round(statistics.mean(r["wall_s"] for r in rows), 1),
-            "mean_cost_usd": round(spend / len(rows), 4) if costs else None,
-            "cost_per_success_usd": round(spend / len(done), 4) if costs and done else None,
+    complete = all(valid_cost(r["cost_usd"]) and r.get("cost_complete") is True for r in rows)
+    spend = sum(r["cost_usd"] for r in rows) if complete else None
+    return {"model": rows[0]["model"], "scenario": rows[0]["scenario"], "condition": rows[0].get("condition", "candidate"),
+            "trials": len(rows), "success": len(done), "rate": round(len(done) / len(rows), 2),
+            "mean_wall_s": statistics.mean(r["wall_s"] for r in rows),
+            "range_wall_s": [min(r["wall_s"] for r in rows), max(r["wall_s"] for r in rows)],
+            "mean_cost_usd": spend / len(rows) if complete else None,
+            "cost_per_success_usd": spend / len(done) if complete and done else None,
             "mean_tokens": round(statistics.mean(r["total_tokens"] for r in rows if r["total_tokens"])) if any(r["total_tokens"] for r in rows) else None,
             "qualities": sorted({r["quality"] for r in done}), "errors": sorted({r["error"] for r in rows if r["error"]})}
+
+
+def paired_schedule():
+    return [("baseline", 1), ("candidate", 1), ("candidate", 2), ("baseline", 2), ("baseline", 3), ("candidate", 3)]
+
+
+def comparison(rows):
+    summaries = {condition: summarize([row for row in rows if row["condition"] == condition])
+                 for condition in ("baseline", "candidate") if any(row["condition"] == condition for row in rows)}
+    complete = all(summaries.get(condition, {}).get("trials") == 3 for condition in ("baseline", "candidate"))
+    baseline, candidate = summaries.get("baseline", {}), summaries.get("candidate", {})
+    measured = complete and candidate.get("mean_cost_usd") is not None
+    passed = measured and candidate["success"] == 3 and candidate["mean_wall_s"] <= 20 and candidate["mean_cost_usd"] <= 0.01
+    return {"complete": complete, "candidate_passed": bool(passed), "summaries": summaries,
+            "time_ratio": candidate["mean_wall_s"] / baseline["mean_wall_s"] if complete and baseline["mean_wall_s"] else None,
+            "cost_ratio": candidate["mean_cost_usd"] / baseline["mean_cost_usd"] if complete and candidate.get("mean_cost_usd") is not None and baseline.get("mean_cost_usd") else None}
 
 
 def main():
@@ -143,55 +211,79 @@ def main():
     parser.add_argument("--models", required=True, help="comma separated model ids")
     parser.add_argument("--scenario", choices=sorted(SCENARIOS), default="permit")
     parser.add_argument("--trials", type=int, default=5)
-    parser.add_argument("--max-usd", type=float, default=4.0, help="stop when estimated spend reaches this")
+    parser.add_argument("--max-usd", type=float, default=4.0, help="stop when conservative spend reaches this, checked between trials")
     parser.add_argument("--out", type=Path, default=None)
+    parser.add_argument("--baseline-site", type=Path, help="paired sandbox-hard comparison with this pinned site's script")
     args = parser.parse_args()
+    if args.trials < 1 or args.max_usd <= 0:
+        parser.error("trials and max-usd must be positive")
+    if args.baseline_site and (args.scenario != "sandbox-hard" or args.trials != 3 or "," in args.models or not args.baseline_site.is_file()):
+        parser.error("baseline-site requires sandbox-hard, one model, three pairs and an existing site script")
     load_dotenv(ROOT / "services/backend/.env", override=False)
     chrome = os.getenv("MENDER_BROWSER_EXECUTABLE") or ""
     mac_chrome = "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
     chrome = chrome or (mac_chrome if Path(mac_chrome).is_file() else "")
-    port = free_port()
-    base_url = f"http://127.0.0.1:{port}"
-    server = subprocess.Popen([*SCENARIOS[args.scenario]["server"], "--port", str(port)],
-                              stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     out = args.out or ROOT / f"services/backend/state/model-bench-{args.scenario}-{int(time.time())}.json"
     out.parent.mkdir(parents=True, exist_ok=True)
-    rows, spend, summaries = [], 0.0, []
+    rows, servers, urls, spend = [], [], {}, 0.0
+    sources = {"candidate": SCENARIOS[args.scenario]["server"]}
+    if args.baseline_site:
+        sources["baseline"] = [sys.executable, str(args.baseline_site.resolve())]
+    metadata = {"site_sha256": {condition: hashlib.sha256(Path(command[1]).read_bytes()).hexdigest() for condition, command in sources.items()}}
+
+    def save_results():
+        summaries = [summarize([r for r in rows if r["model"] == model and r["condition"] == condition])
+                     for model in args.models.split(",") for condition in sources
+                     if any(r["model"] == model and r["condition"] == condition for r in rows)]
+        result = {**metadata, "rows": rows, "summaries": summaries, "estimated_spend_usd": spend}
+        if args.baseline_site:
+            result["comparison"] = comparison(rows)
+        out.write_text(json.dumps(result, indent=2))
+
     try:
-        for _ in range(50):
-            try:
-                urlopen(f"{base_url}/healthz", timeout=1).read()
-                break
-            except OSError:
-                time.sleep(0.1)
+        for condition, command in sources.items():
+            port = free_port()
+            urls[condition] = f"http://127.0.0.1:{port}"
+            servers.append(subprocess.Popen([*command, "--port", str(port)], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL))
+            for _ in range(50):
+                try:
+                    http(f"{urls[condition]}/healthz")
+                    break
+                except OSError:
+                    time.sleep(0.1)
+            else:
+                raise RuntimeError(f"{condition} site did not start")
         for model in args.models.split(","):
-            mine = []
-            for number in range(1, args.trials + 1):
+            schedule = paired_schedule() if args.baseline_site else [("candidate", number) for number in range(1, args.trials + 1)]
+            for condition, number in schedule:
                 if spend >= args.max_usd:
-                    print(f"STOP: estimated spend ${spend:.2f} reached the cap", flush=True)
+                    print(f"STOP: conservative spend ${spend:.3f} reached the cap", flush=True)
                     break
-                row = trial(model, args.scenario, base_url, chrome)
+                started = time.perf_counter()
+                try:
+                    row = trial(model, args.scenario, urls[condition], chrome, condition=condition)
+                except Exception as exc:
+                    row = {"model": model, "scenario": args.scenario, "condition": condition,
+                           "ok": False, "status": "error", "error": f"trial_exception:{type(exc).__name__}",
+                           "wall_s": round(time.perf_counter() - started, 3), "selector": None,
+                           "quality": "none", "cost_usd": None, "cost_complete": False, "total_tokens": None}
                 row["trial"] = number
-                mine.append(row)
                 rows.append(row)
-                # An unknown cost still spent money, so count a conservative estimate toward the cap.
-                spend += row["cost_usd"] if isinstance(row["cost_usd"], (int, float)) else UNKNOWN_COST_USD
-                print(f"{model} #{number}: {'OK ' if row['ok'] else 'FAIL'} {row['wall_s']}s ${row['cost_usd']} "
-                      f"{row['selector'] or row['error']} (spend ${spend:.3f})", flush=True)
-                out.write_text(json.dumps({"rows": rows}, indent=2))
-                if number >= 2 and not any(r["ok"] for r in mine) and all(r["error"] for r in mine):
-                    print(f"{model}: failing outright, skipping its remaining trials", flush=True)
-                    break
-            if mine:
-                summaries.append(summarize(mine))
-                print("SUMMARY", json.dumps(summaries[-1]), flush=True)
+                spend += budget_cost(row)
+                save_results()
+                print(f"{condition} {model} #{number}: {'OK' if row['ok'] else 'FAIL'} {row['wall_s']:.1f}s "
+                      f"${row['cost_usd']} {row['selector']} (spend ${spend:.3f})", flush=True)
             if spend >= args.max_usd:
                 break
     finally:
-        server.terminate()
-        server.wait()
-        out.write_text(json.dumps({"rows": rows, "summaries": summaries, "estimated_spend_usd": round(spend, 4)}, indent=2))
-    print(f"Saved {out}; estimated spend ${spend:.3f}")
+        for server in servers:
+            server.terminate()
+        for server in servers:
+            server.wait()
+        save_results()
+    if args.baseline_site:
+        print("COMPARISON", json.dumps(comparison(rows)), flush=True)
+    print(f"Saved {out}; conservative spend ${spend:.3f}")
 
 
 if __name__ == "__main__":
