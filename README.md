@@ -76,9 +76,19 @@ Without a `SENTRY_DSN` everything still runs; Sentry is just off.
 5. Before the next run click **Reset selectors** in the dashboard (restores the committed selectors; the
    healed one only matches Chaos Mode's page) and turn Chaos Mode off on the portal.
 
-The record editor works the same way: its page can be broken with `POST /chaos` on port 3100, and a repair
-there writes to the site at most three times (agent, replay, canary), which is why write workflows run only on
-local or allow-listed hosts.
+For the write demo, start the inventory site and open `http://127.0.0.1:3100/records` beside the dashboard:
+
+1. Choose `record-update`, set `record_id` to `SKU-1042` and `value` to `24.95`, then trigger the workflow.
+   The seeded table changes from 19.95 to 24.95 and its "Last saved" time updates automatically, even though
+   the runner uses a separate browser. You can also save directly in the site's form.
+2. Click **Chaos Mode** on the inventory page. The layout rearranges and the save button moves into an
+   authorization dialog. Trigger the workflow again to demonstrate the repair, then once more for the fast path.
+3. The agent, replay and canary each save during a successful heal. Repeated sets are safe, and the
+   `canary-record` row is visible too; "Last saved" may refer to it. Write workflows run only on local or
+   allow-listed hosts.
+4. Before repeating, reset `record-update` selectors in the dashboard and turn Chaos Mode off on the site.
+   To restore all three seed rows as well, `POST /reset` to the site on port 3100. That also clears chaos and
+   last-save metadata, but selector reset remains a separate backend operation.
 
 Rehearse it unattended: `python -m services.backend.rehearse 5` (API) or
 `services/backend/rehearse_ui.py` (through the dashboard in a real browser). Both spend about $0.03 per loop.
