@@ -1,15 +1,20 @@
 """M3 cooldown, finalized repair records, measurement ownership, and operator reset."""
 
 import asyncio
+from dataclasses import replace
 import json
 import os
+from pathlib import Path
 import re
 import subprocess
+import sys
+import tempfile
 from unittest.mock import patch
 
 import httpx
 
 from services.backend.config import BackendError
+from services.backend.main import create_app
 from services.backend.runner import RunResult
 from services.backend.tests.test_m1 import failure
 from services.backend.tests.test_m2 import M2Harness
@@ -264,6 +269,56 @@ class M3Tests(M2Harness):
         self.assertNotIn("diff", waiter)
         self.assertEqual(self.outcomes(waiter), self.outcomes(owner))
         self.assertTrue(all(r[1] == "committed" for r in self.outcomes(waiter)))
+
+    # Review fixes
+
+    async def test_failure_at_the_navigation_step_does_not_start_a_recovery(self):
+        payload = (await self.request(case="navigation")).json()
+        self.assertEqual(payload["status"], "failed")
+        self.assertEqual(payload["error"]["code"], "runner_failed")
+        self.assertIn("not a selector", payload["error"]["message"])
+        self.assertFalse(payload["recovery_attempted"])
+        self.assertEqual(self.calls, [])
+        self.assertEqual(self.recovery_files(), [])
+        self.assertEqual(self.app.state.recovery.cooldown, {})
+
+    def test_runner_python_defaults_to_the_project_venv_when_it_exists(self):
+        from services.backend.config import default_runner_python
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            self.assertEqual(default_runner_python(root), sys.executable)
+            (root / ".venv/bin").mkdir(parents=True)
+            (root / ".venv/bin/python").write_text("")
+            self.assertEqual(default_runner_python(root), str(root / ".venv/bin/python"))
+
+    async def test_operator_endpoints_refuse_forwarded_requests(self):
+        for path, method in (("/api/v1/status", "get"), ("/api/v1/admin/reset", "post")):
+            plain = await getattr(self.client, method)(path)
+            self.assertNotEqual(plain.status_code, 403, path)
+            forwarded = await getattr(self.client, method)(path, headers={"X-Forwarded-For": "203.0.113.9"})
+            self.assertEqual(forwarded.status_code, 403, path)
+
+    async def test_a_logged_exception_still_reaches_sentry(self):
+        """With log lines no longer becoming issues, log.exception sites must capture explicitly."""
+        import sentry_sdk
+        from sentry_sdk.transport import Transport
+        envelopes = []
+
+        class Memory(Transport):
+            def capture_envelope(self, envelope):
+                envelopes.append(envelope)
+        from sentry_sdk.integrations.logging import LoggingIntegration
+        # Same logging settings as production, where ERROR log lines do not become events by themselves.
+        sentry_sdk.init(dsn="https://public@example.invalid/1", transport=Memory(), traces_sample_rate=0,
+                        integrations=[LoggingIntegration(event_level=None)])
+        self.addCleanup(sentry_sdk.init)
+        with tempfile.TemporaryDirectory() as empty, patch("services.backend.main.sentry_sdk.init"):
+            app = create_app(replace(self.settings, root=Path(empty)))  # no contract schemas: startup fails
+            async with app.router.lifespan_context(app):
+                self.assertIsNotNone(app.state.configuration_error)
+        sentry_sdk.flush()
+        events = [item.payload.json for envelope in envelopes for item in envelope.items if item.headers.get("type") == "event"]
+        self.assertTrue(any("exception" in event for event in events), events)
 
     # Safety
 

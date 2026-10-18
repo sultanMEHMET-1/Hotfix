@@ -6,6 +6,7 @@ from html.parser import HTMLParser
 import json
 import math
 import os
+import shutil
 from urllib.parse import urlsplit
 from uuid import uuid4
 
@@ -217,6 +218,7 @@ async def diagnose(settings, workflow, params, failure, *, deadline=None):
         raise BackendError("model_unconfigured", "Set GOOGLE_API_KEY and GEMINI_MODEL before live recovery")
     browser = None
     llm = None
+    workdirs = [settings.backend / "state" / f"browser-{uuid4()}", settings.backend / "state" / f"agent-{uuid4()}"]
     metrics = {"model": model}
     clock = asyncio.get_running_loop().time
     started = clock()
@@ -227,7 +229,7 @@ async def diagnose(settings, workflow, params, failure, *, deadline=None):
             browser = BrowserSession(
                 headless=settings.headless, executable_path=settings.browser_executable,
                 enable_default_extensions=False, keep_alive=True,
-                user_data_dir=str(settings.backend / "state" / f"browser-{uuid4()}"),
+                user_data_dir=str(workdirs[0]),
                 allowed_domains=[urlsplit(failure.page_url).hostname],
             )
             captured = {}
@@ -273,7 +275,7 @@ async def diagnose(settings, workflow, params, failure, *, deadline=None):
                 use_judge=False, calculate_cost=True, enable_signal_handler=False,
                 max_failures=1, enable_planning=False, message_compaction=False,
                 llm_timeout=min(30, settings.agent_timeout),
-                file_system_path=str(settings.backend / "state" / f"agent-{uuid4()}"),
+                file_system_path=str(workdirs[1]),
             )
             with sentry_sdk.start_span(op="gen_ai.invoke_agent", name="invoke_agent Browser Use") as agent_span:
                 agent_span.set_data("gen_ai.agent.name", "Browser Use")
@@ -328,16 +330,20 @@ async def diagnose(settings, workflow, params, failure, *, deadline=None):
         metrics["wall_time_ms"] = (clock() - started) * 1000
         cleanup_deadline = deadline + settings.cleanup_reserve if deadline is not None else None
         try:
-            if browser:
-                await close_browser(browser, deadline=cleanup_deadline)
+            try:
+                if browser:
+                    await close_browser(browser, deadline=cleanup_deadline)
+            finally:
+                # ChatGoogle caches this client but does not close it when Agent.run ends.
+                client = getattr(llm, "_client", None)
+                if client is not None:
+                    try:
+                        timeout = 3 if cleanup_deadline is None else min(3, max(0.001, cleanup_deadline - clock()))
+                        await asyncio.wait_for(client.aio.aclose(), timeout=timeout)
+                        timeout = 3 if cleanup_deadline is None else min(3, max(0.001, cleanup_deadline - clock()))
+                        await asyncio.wait_for(asyncio.to_thread(client.close), timeout=timeout)
+                    except Exception as exc:
+                        raise BackendError("model_cleanup_failed", "Gemini client could not be closed") from exc
         finally:
-            # ChatGoogle caches this client but does not close it when Agent.run ends.
-            client = getattr(llm, "_client", None)
-            if client is not None:
-                try:
-                    timeout = 3 if cleanup_deadline is None else min(3, max(0.001, cleanup_deadline - clock()))
-                    await asyncio.wait_for(client.aio.aclose(), timeout=timeout)
-                    timeout = 3 if cleanup_deadline is None else min(3, max(0.001, cleanup_deadline - clock()))
-                    await asyncio.wait_for(asyncio.to_thread(client.close), timeout=timeout)
-                except Exception as exc:
-                    raise BackendError("model_cleanup_failed", "Gemini client could not be closed") from exc
+            for workdir in workdirs:
+                shutil.rmtree(workdir, ignore_errors=True)

@@ -82,6 +82,7 @@ def create_app(settings=None):
         except Exception:
             app.state.configuration_error = "Invalid backend configuration; check workflow definitions and contracts"
             log.exception("Backend configuration failed")
+            sentry_sdk.capture_exception()
         app.state.recovery = Recovery(app, settings)
         try:
             yield
@@ -91,7 +92,8 @@ def create_app(settings=None):
     app = FastAPI(title="Mender backend", lifespan=lifespan)
 
     def require_local(request: Request):
-        if not request.client or request.client.host not in {"127.0.0.1", "::1", "testclient"}:
+        forwarded = "x-forwarded-for" in request.headers or "forwarded" in request.headers
+        if forwarded or not request.client or request.client.host not in {"127.0.0.1", "::1"}:
             raise HTTPException(403, "Operator endpoints are local only")
 
     @app.get("/api/v1/status")
@@ -123,6 +125,7 @@ def create_app(settings=None):
             version = await restore_original(settings, app.state.store)
         except Exception:
             log.exception("Reset failed")
+            sentry_sdk.capture_exception()
             raise HTTPException(500, "Reset failed; see backend logs")
         finally:
             await lock.__aexit__(None, None, None)
@@ -194,6 +197,9 @@ def create_app(settings=None):
                                 log.warning("%s", result.error, extra={"phase": "BROKEN"})
                                 if result.failure is None:
                                     raise result.error
+                                if result.failure.failed_step not in selectors["fields"]:
+                                    # E.g. the page did not load: there is no selector to repair.
+                                    raise BackendError("runner_failed", "The runner failed at a step that is not a selector, such as loading the page")
                                 # No await from here to start(): lookup, join and register are atomic.
                                 task = recovery.active(request.workflow)
                                 if task is None:

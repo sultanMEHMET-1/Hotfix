@@ -322,6 +322,7 @@ class Recovery:
                         atomic_json(self.settings.backend / "state" / f"recovery-{recovery_id}.json", report)
                     except OSError:
                         log.exception("Could not retain recovery measurements")
+                        sentry_sdk.capture_exception()
                     if (outcome.attempted and outcome.error and entry_failure
                             and outcome.error.code not in UNCACHEABLE and not self.app.state.configuration_error):
                         try:
@@ -329,6 +330,7 @@ class Recovery:
                             key = cooldown_key(entry_failure, store.read())
                         except Exception:
                             log.exception("Could not record the failure cooldown")
+                            sentry_sdk.capture_exception()
                         else:
                             self.cooldown[workflow_id] = {
                                 "key": key, "outcome": outcome, "recovery_id": recovery_id,

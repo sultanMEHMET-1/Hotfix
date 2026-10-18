@@ -59,6 +59,12 @@ class Workflow(BaseModel):
 LOCAL_HOSTS = {"127.0.0.1", "localhost", "::1"}
 
 
+def default_runner_python(root: Path):
+    """The project venv (made by services/runner/setup_venv.sh) has Playwright; the backend's own interpreter does not."""
+    venv = root / ".venv/bin/python"
+    return str(venv) if venv.is_file() else sys.executable
+
+
 def write_allowed(url: str, extra_hosts=()):
     """Mutating workflows may only touch sites we control: loopback or an explicit allowlist."""
     return (urlsplit(url).hostname or "") in LOCAL_HOSTS | set(extra_hosts)
@@ -91,7 +97,7 @@ class Settings:
             if os.getenv("MENDER_WORKFLOWS_DIR") else None,
             runner_script=Path(os.environ["MENDER_RUNNER_SCRIPT"]).resolve()
             if os.getenv("MENDER_RUNNER_SCRIPT") else None,
-            runner_python=os.getenv("MENDER_RUNNER_PYTHON", sys.executable),
+            runner_python=os.getenv("MENDER_RUNNER_PYTHON") or default_runner_python(root),
             runner_timeout=float(os.getenv("MENDER_RUNNER_TIMEOUT", "45")),
             agent_timeout=float(os.getenv("MENDER_AGENT_TIMEOUT", "90")),
             write_hosts=tuple(h.strip() for h in os.getenv("MENDER_WRITE_HOSTS", "").split(",") if h.strip()),

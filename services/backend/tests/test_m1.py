@@ -118,7 +118,7 @@ class AdapterTests(unittest.IsolatedAsyncioTestCase):
         clients_closed = []
         class Browser:
             def __init__(self, **kwargs):
-                pass
+                Path(kwargs["user_data_dir"]).mkdir(parents=True, exist_ok=True)
             async def get_or_create_cdp_session(self):
                 async def evaluate(params, session_id):
                     selector = None if mode == "unresolved" else CORRECT if 'html/body/button' in params["expression"] else 'input[data-testid="lookup-reference"]'
@@ -141,6 +141,7 @@ class AdapterTests(unittest.IsolatedAsyncioTestCase):
         class Agent:
             def __init__(self, **kwargs):
                 self.kwargs = kwargs
+                Path(kwargs["file_system_path"]).mkdir(parents=True, exist_ok=True)
             async def run(self, max_steps):
                 if mode == "no_result":
                     return None
@@ -177,8 +178,10 @@ class AdapterTests(unittest.IsolatedAsyncioTestCase):
                     expected = {"timeout": "agent_timeout", "unresolved": "unresolved_element", "no_result": "agent_no_result",
                                 "blocked": "agent_blocked"}
                     self.assertEqual(caught.exception.code, expected.get(mode, "ambiguous_element"))
+            leftovers = [p for p in Path(directory).rglob("*") if p.name.startswith(("browser-", "agent-"))]
         self.assertEqual(closed, [True])
         self.assertEqual(clients_closed, ["async", "sync"])
+        self.assertEqual(leftovers, [], "per-invocation profile and file-system directories must be removed")
 
     async def test_failed_sdk_cleanup_force_kills_its_owned_process(self):
         from services.backend.healer import close_browser
