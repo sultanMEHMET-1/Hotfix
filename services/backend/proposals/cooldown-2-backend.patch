@@ -1,8 +1,8 @@
 diff --git a/services/backend/main.py b/services/backend/main.py
-index 63b1ee2..9a4c2ac 100644
+index 27a9e0f..3378c22 100644
 --- a/services/backend/main.py
 +++ b/services/backend/main.py
-@@ -152,6 +152,7 @@ def create_app(settings=None):
+@@ -160,6 +160,7 @@ def create_app(settings=None):
                  error = None
                  data = {}
                  records = []
@@ -10,7 +10,7 @@ index 63b1ee2..9a4c2ac 100644
                  owner = False
                  outcome = None
                  recovery = app.state.recovery
-@@ -195,6 +196,7 @@ def create_app(settings=None):
+@@ -206,6 +207,7 @@ def create_app(settings=None):
                                      hit = recovery.cached(request.workflow, result.failure, selectors)
                                      if hit:
                                          attempted, outcome = True, hit["outcome"]
@@ -18,7 +18,7 @@ index 63b1ee2..9a4c2ac 100644
                                          log.warning("Cached failure from recovery %s; %.1f s remaining", hit["recovery_id"],
                                                      hit["expires"] - recovery.clock(), extra={"phase": "COOLDOWN"})
                                      else:
-@@ -260,6 +262,7 @@ def create_app(settings=None):
+@@ -271,6 +273,7 @@ def create_app(settings=None):
                      # Measurements belong to the request that ran the agent, never waiters or cache hits.
                      agent_cost_usd=outcome.agent_cost_usd if owner and outcome else None,
                      agent_duration_ms=outcome.agent_duration_ms if owner and outcome else None,
@@ -27,10 +27,10 @@ index 63b1ee2..9a4c2ac 100644
                  payload = response.model_dump(mode="json", exclude_none=True)
                  if not records:
 diff --git a/services/backend/tests/test_m3.py b/services/backend/tests/test_m3.py
-index 128b87e..2974ea3 100644
+index 35b74d1..98c4878 100644
 --- a/services/backend/tests/test_m3.py
 +++ b/services/backend/tests/test_m3.py
-@@ -63,6 +63,8 @@ class M3Tests(M2Harness):
+@@ -68,6 +68,8 @@ class M3Tests(M2Harness):
          self.assertEqual(len(self.recovery_files()), 1)
          self.assertEqual(second["error"], first["error"])
          self.assertNotEqual(second["trace_id"], first["trace_id"])

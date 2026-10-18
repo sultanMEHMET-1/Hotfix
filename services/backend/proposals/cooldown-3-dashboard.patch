@@ -1,23 +1,24 @@
 diff --git a/services/dashboard/src/App.tsx b/services/dashboard/src/App.tsx
-index e1f91ae..0216db9 100644
+index 7062cd5..bd323f5 100644
 --- a/services/dashboard/src/App.tsx
 +++ b/services/dashboard/src/App.tsx
-@@ -40,7 +40,7 @@ export default function App() {
-           mocksOn={mocksOn}
-         />
+@@ -42,7 +42,7 @@ export default function App() {
  
--        {result?.status === "failed" && result.error && <ErrorBanner error={result.error} />}
-+        {result?.status === "failed" && result.error && <ErrorBanner key={result.trace_id} error={result.error} cooldownRemainingS={result.cooldown_remaining_s} />}
+         {phase === "error" && error && <ErrorBanner error={{ code: "request_failed", message: error.message }} />}
+         {phase === "done" && result?.status === "failed" && result.error && (
+-          <ErrorBanner error={result.error} />
++          <ErrorBanner key={result.trace_id} error={result.error} cooldownRemainingS={result.cooldown_remaining_s} />
+         )}
  
          <div className="mt-4">
-           <BenchmarkSummary benchmarks={benchmarks} />
 diff --git a/services/dashboard/src/__tests__/ErrorBanner.test.tsx b/services/dashboard/src/__tests__/ErrorBanner.test.tsx
 new file mode 100644
-index 0000000..8c576b2
+index 0000000..94e7155
 --- /dev/null
 +++ b/services/dashboard/src/__tests__/ErrorBanner.test.tsx
-@@ -0,0 +1,24 @@
+@@ -0,0 +1,25 @@
 +import { act, render, screen } from "@testing-library/react";
++import "@testing-library/jest-dom/vitest";
 +import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 +import ErrorBanner from "../components/ErrorBanner";
 +

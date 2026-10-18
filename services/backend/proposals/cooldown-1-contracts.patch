@@ -1,8 +1,8 @@
 diff --git a/contracts/README.md b/contracts/README.md
-index 89d3841..3c9e015 100644
+index 4e999e8..b49d9b3 100644
 --- a/contracts/README.md
 +++ b/contracts/README.md
-@@ -53,6 +53,7 @@ Use provides XPath or accessibility evidence.
+@@ -57,6 +57,7 @@ Use provides XPath or accessibility evidence.
  - `heal_records` (optional array, defaults to empty)
  - `agent_cost_usd` (optional nonnegative number)
  - `agent_duration_ms` (optional nonnegative number)
@@ -10,24 +10,19 @@ index 89d3841..3c9e015 100644
  
  ## Recovery response semantics
  
-@@ -110,6 +111,17 @@ double-count shared work. If the SDK cannot expose a reliable value, omit it.
- Joined requests may include the shared records but have their own `trace_id`,
- `execution_time_ms`, and workflow output from their own replay.
+@@ -124,9 +125,9 @@ After a failed recovery the backend remembers that exact failure for 15 seconds
+ repeat of it from memory, without running the agent again. The repeat keeps the original
+ `error` and `heal_records`, has its own `trace_id` and `execution_time_ms`, and carries no
+ `agent_cost_usd` or `agent_duration_ms`. A different failure (another step, selector, or page)
+-starts a fresh recovery. The response does not currently say a result was cached; a proposal
+-to add `cooldown_remaining_s` is in `services/backend/proposals/cooldown-remaining-field.md`
+-and is not part of this contract until all three owners agree.
++starts a fresh recovery. A response served from the cooldown sets `cooldown_remaining_s` to the
++seconds left before a retry would start a fresh recovery; the field is omitted on every other
++response, including the failure that started the cooldown. Consumers can show "retry in N s" from it.
  
-+## Failure cooldown
-+
-+After a failed recovery the backend remembers that exact failure for 15 seconds. A request
-+that fails the same way inside that window is answered from the memory instead of starting
-+another agent run, so the agent is not re-run (and billed) for a failure it just could not fix.
-+Such a response keeps the original `error` and `heal_records`, has its own `trace_id` and
-+`execution_time_ms`, carries no `agent_cost_usd` or `agent_duration_ms`, and sets
-+`cooldown_remaining_s` to the seconds left before a retry would start a fresh recovery.
-+The field is omitted on every other response, including the failure that started the cooldown.
-+Consumers can show "retry in N s" from it.
-+
  ## Contract checks
  
- Run from the repository root:
 diff --git a/contracts/api_types.py b/contracts/api_types.py
 index 4256988..b3388e8 100644
 --- a/contracts/api_types.py

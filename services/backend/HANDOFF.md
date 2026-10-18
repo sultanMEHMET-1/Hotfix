@@ -1,350 +1,312 @@
-# M3 review handoff
+# Backend handoff
 
-## Status and review boundary
+State of `services/backend` for a teammate or agent picking it up. The run guide is
+[README.md](README.md), the rules for agents are [AGENTS.md](AGENTS.md), and the project brief is
+[CLAUDE.md](CLAUDE.md). Everything below is merged into `main` (PR #1) unless it says it is a proposal.
 
-M1 and M2 were accepted. M3 (15 s failure cooldown, finalized `heal_records`,
-reset and status endpoints) is implemented on `codex/browser-use-recovery` and must
-stop for review. The pre-M3 baseline is `d36e539`. No real team portal, runner, or
-dashboard is present in this checkout; integration fixtures are not replacements.
+## Status
 
-The endpoint builds the shared response model, dumps it once, and validates that same
-JSON with Pydantic's model and the JSON Schema before returning it. All four
-contract fields are enabled (owner approved). Failed execution returns HTTP 200,
-`status="failed"`, `healed=false`, `data={}`, and no `diff`. Cost and agent duration
-are emitted only to the request that ran the agent and only when every invocation
-reported them. Joined requests and cooldown hits never get them.
+| Area | State |
+| --- | --- |
+| M1 single-field recovery, M2 transactional multi-field recovery, M3 failure cooldown and finalized `heal_records` | Shipped, tested, merged |
+| Real runner and portal (Person 1) | Merged; speaks the agreed CLI; verified end to end |
+| Dashboard (Person 3) | Merged; verified in a real browser against the real backend |
+| Write workflows (local sites only) | Shipped with a guard, a sandbox site, and a login-wall fail-fast |
+| Sentry | Verified live in project `mender-backend`; failed-recovery alert created |
+| Model comparison | 8 Gemini models, 90 paid trials; default is now `gemini-3.5-flash-lite` (see below) |
+| Cooldown field `cooldown_remaining_s` | Proposal only, needs the contracts owner (see `proposals/`) |
+
+Test status at the last run: backend 103 tests (15 opt-in skipped), dashboard 45, runner 6, `ruff` clean.
+
+The endpoint builds the shared response model, dumps it once, and validates that same JSON with both
+the Pydantic model and the JSON Schema before returning it. All four contract fields are enabled
+(`error`, `heal_records`, `agent_cost_usd`, `agent_duration_ms`). Failures are HTTP 200 with
+`status="failed"`, `healed=false`, `data={}`, no `diff`. Cost and agent duration go only to the request that
+ran the agent, only when every invocation reported them, and never to joined requests or cooldown hits.
 
 ## Read and trace
 
 | Source | Responsibility and review focus |
 | --- | --- |
-| [main.py](main.py) | Startup validation, bounded fast-path lock acquisition, active-task joining, shielded waiting, each waiter's own replay, response omission policy. |
-| [recovery.py](recovery.py) | Application-owned tasks, one baseline, three-invocation loop, ordered progress, deadline, final canary, rollback, measurement accounting. |
-| [healer.py](healer.py) | Lazy SDK imports, Gemini, executed-history grounding, live CSS capture, browser and cached Google client cleanup. |
-| [runner.py](runner.py) | CLI subprocess, separate stdout/stderr, per-operation/deadline timeouts, process-group termination, raw output validation, owned artifacts. No selector locks. |
-| [store.py](store.py) | POSIX locks, validated atomic writes, backups, higher-version restoration. |
-| [config.py](config.py) | Backend workflow definitions, ordered steps, top-level goal, schemas, canary masking, runtime settings. |
-| [terminal.py](terminal.py) | Rich rendering without emojis; original records and telemetry are preserved. |
-| [reset.py](reset.py) | Operator reset using the same lock and higher-version restoration. |
+| [main.py](main.py) | Startup validation, Sentry init, bounded fast-path lock, active-task joining, cooldown lookup, shielded waiting, each waiter's own replay, write guard, operator endpoints, response building |
+| [recovery.py](recovery.py) | Application-owned tasks, one baseline, three-invocation loop, ordered progress, deadline, final canary, rollback, record finalization, cooldown cache, measurements |
+| [healer.py](healer.py) | Lazy SDK imports, Gemini, executed-history grounding, live CSS capture, browser and Google client cleanup, per-run directory cleanup, agent span attributes |
+| [runner.py](runner.py) | CLI subprocess, separate stdout/stderr, per-operation and deadline timeouts, process-group termination, raw output validation, owned artifacts. No selector locks |
+| [store.py](store.py) | POSIX locks, validated atomic writes, backups, higher-version restoration |
+| [config.py](config.py) | Workflow definitions (steps, goal, schemas, canary masking, `mutates`), settings, `write_allowed`, runner interpreter default |
+| [reset.py](reset.py) | Restore from a backup or from git `HEAD` under the same lock |
+| [terminal.py](terminal.py) | Rich rendering without emojis; original records and telemetry preserved |
+| [workflows/](workflows) | `permit-application.json`, the demo definition |
+| [sandbox/records_site.py](sandbox/records_site.py) | Local stateful site for write workflows (Chaos Mode, decoys with `hard`, `/state`, `/reset`) |
+| [rehearse.py](rehearse.py), [rehearse_ui.py](rehearse_ui.py), [bench_models.py](bench_models.py) | Paid tools: API demo loops, real-browser dashboard loops, model comparison |
+| [proposals/](proposals) | Changes proposed to other owners (not applied) and a paste-ready message for Person 1 |
 
 ## Recovery state and invariants
 
-1. Startup loads workflows and schemas. The configured demo workflow, defaulting
-   to the selector map's workflow ID, requires a canary. Missing runner or workflow
-   configuration remains an explicit 503. Invalid parameters return 422.
-2. If a workflow has an active recovery, join it. Otherwise acquire the shared
-   lock within five seconds, validate map compatibility, and run deterministic
-   execution. Keep the lock for that execution, but bound only acquisition.
-3. Runner failure needs valid, run-owned evidence before recovery. Register an
-   application-owned task without an intervening await. Existing waiters share
-   its result. A request cancellation must not cancel the task.
-4. Recovery starts its 240-second clock at task creation, before exclusive-lock
-   waiting. Work stops after 210 seconds; 30 seconds remain for emergency cleanup
-   and rollback. The initial fast run and any waiter's final replay are outside
-   this recovery clock. Local tests use shorter injected Settings values.
-5. Under the exclusive lock, reread selectors and replay if another writer
-   changed them. Then validate workflow, field, expected selector, and origin;
-   save exactly one baseline backup before the first agent attempt.
-6. Invoke Browser Use at most three times. Agent errors/timeouts/no-result may
-   retry the same field. Ambiguous evidence, invalid candidates, and cleanup
-   failures are terminal. SDK-internal retries do not reset this backend cap.
-7. Ground each candidate in one executed action/result/element match. CSS comes
-   from stable attributes, a unique tag, or live structural targeting. An agent
-   completion statement is never sufficient. No mutable class or XPath is stored.
-8. Write each candidate atomically at the next version. Replay under the lock
-   already held; Runner.execute must never reacquire it. A valid later-step
-   failure retains provisional progress; same/earlier failures abort. Three
-   attempts exhausted also abort.
-9. Final replay output must pass JSON Schema. Run a separate canary, validate raw
-   output, then compare after explicit volatile-field exclusions. Commit only
-   after all checks pass. Generic non-demo definitions may omit a canary.
-10. Any terminal failure restores the entire baseline if a patch was installed.
-    Restoration uses a new version greater than every provisional version. No
-    installed patch means no restoration write. Rollback failure blocks service.
-11. Successful waiters replay with their own parameters/run IDs; failed flights
-    return failure to existing waiters. After cleanup, a failed attempted recovery
-    is stored for 15 s (`Recovery.cooldown`, set as the last synchronous step of
-    `run()`). Lookup, join and registration in `main.py` have no await between
-    them. The key uses the map on disk after cleanup because rollback bumps the
-    version. Hits never extend expiry. Uncacheable: config errors, cancellation,
-    failed cleanup or restoration, and failures without valid evidence.
-11a. Records: one draft per candidate with a non-empty selector, in attempt order,
-    finalized in `run()`'s `finally`: committed, rolled_back (shared
-    `rollback_version`), or rejected (never written). Failed restoration drops
-    them all. Reset (`/api/v1/admin/reset`, loopback only) restores `git HEAD`
-    selectors as a new version under the exclusive lock and clears the cooldown.
-12. Emit one measurement record per recovery. Independent background Sentry
-    transactions retain the originating trace ID and can finish after the owner
-    request closes. Waiter spans retain a recovery trace reference.
+1. Startup loads workflows and schemas. The configured demo workflow, defaulting to the selector map's
+   workflow ID, requires a canary. Missing runner or workflow configuration is an explicit 503. Invalid
+   parameters return 422.
+2. If a workflow has an active recovery, join it. Otherwise acquire the shared lock within five seconds,
+   validate map compatibility, and run deterministic execution. Keep the lock for that execution, but bound
+   only acquisition.
+3. A runner failure needs valid, run-owned evidence before recovery, and must be at a selector step. A
+   failure at a step that is not in the selector map (for example the page did not load) is reported as
+   `runner_failed` and never starts a recovery. Register an application-owned task without an intervening
+   await. Existing waiters share its result. A request cancellation must not cancel the task.
+4. Recovery starts its 240-second clock at task creation, before exclusive-lock waiting. Work stops after 210
+   seconds; 30 seconds remain for emergency cleanup and rollback. The initial fast run and any waiter's final
+   replay are outside this recovery clock. Tests use shorter injected Settings values.
+5. Under the exclusive lock, reread selectors and replay if another writer changed them. Then validate
+   workflow, field, expected selector, and origin; save exactly one baseline backup before the first agent
+   attempt.
+6. Invoke Browser Use at most three times. Agent errors, timeouts, no-result and `agent_blocked` (the agent gave
+   up, for example at a login or access wall) may retry the same field. Ambiguous evidence, invalid candidates,
+   and cleanup failures are terminal. SDK-internal retries do not reset this cap. `agent_blocked` is retryable
+   because models sometimes give up early on a normal page and a retry usually succeeds; a real login wall
+   spends the cap and fails with no records.
+7. Ground each candidate in one executed action, result and element match. CSS comes from stable attributes,
+   a unique tag, or live structural targeting. An agent completion statement is never sufficient. No mutable
+   class or XPath is stored.
+8. Write each candidate atomically at the next version. Replay under the lock already held;
+   `Runner.execute` must never reacquire it. A valid later-step failure retains provisional progress;
+   same or earlier failures abort. Three attempts exhausted also abort.
+9. Final replay output must pass JSON Schema. Run a separate canary, validate raw output, then compare after
+   explicit volatile-field exclusions. Commit only after all checks pass. Non-demo definitions may omit a canary.
+10. Any terminal failure restores the entire baseline if a patch was installed, as a new version greater than
+    every provisional version. No installed patch means no restoration write. Rollback failure blocks service.
+11. Successful waiters replay with their own parameters and run IDs; failed flights return the failure to
+    existing waiters. After cleanup, a failed attempted recovery is stored for 15 s (`Recovery.cooldown`, set
+    as the last synchronous step of `run()`). Lookup, join and registration in `main.py` have no await between
+    them. The key uses the map on disk after cleanup (rollback bumps the version) and a failure fingerprint
+    that ignores class attributes (the portal randomizes them). Hits never extend expiry. Uncacheable: config
+    errors, cancellation, failed cleanup or restoration, and failures without valid evidence.
+12. Records: one draft per candidate with a non-empty selector, in attempt order, finalized in `run()`'s
+    `finally`: `committed`, `rolled_back` (shared `rollback_version`), or `rejected` (never written). Failed
+    restoration drops them all.
+13. Emit one measurement record per recovery. Independent background Sentry transactions retain the
+    originating trace ID and can finish after the owner request closes.
+14. A workflow with `mutates: true` runs only when the selector map's `target_url` host is loopback or in
+    `MENDER_WRITE_HOSTS`, and is refused before the runner starts. This relies on the runner actually
+    navigating to that `target_url`; the permit runner does not yet (see open items).
+15. Operator endpoints (`/api/v1/admin/reset`, `/api/v1/status`) accept only loopback peers and refuse any
+    request carrying forwarding headers. Reset restores git `HEAD` selectors as a new version under the
+    exclusive lock, refuses during a recovery, and clears the cooldown.
 
-All selector writers must follow the lock protocol, including reset. Outside
-editors do not automatically participate. Graceful application shutdown drains
-active tasks. Client/proxy timeouts must cover at least 240 seconds plus initial
-execution, waiter replay, and network overhead. A timeout is not a reset request.
+All selector writers must follow the lock protocol, including reset. Outside editors do not participate.
+Graceful shutdown drains active tasks. Client and proxy timeouts must cover at least 240 seconds plus initial
+execution, waiter replay and network overhead. A timeout is not a reset request.
 
 ## SDK evidence and derivation
 
-Verified runtime: Python 3.12.2 and browser-use 0.13.11. Gemini uses native
-`ChatGoogle`, with model/key from the environment. The wrapper requires
-`max_retries >= 1`; the adapter uses 1, six steps, one action per step, and one
-consecutive failure before stopping. Browser Use remains absent on fast success.
+Verified runtime: Python 3.12.2 and browser-use 0.13.11. Gemini uses native `ChatGoogle`, with model and key
+from the environment. The wrapper requires `max_retries >= 1`; the adapter uses 1, six steps, one action per
+step, and one consecutive failure before stopping. Browser Use stays absent on fast success. The SDK counts
+thinking tokens as output tokens and prices them with its pricing table, so its cost estimates include them.
 
-The recorded history fixture projects a real Browser Use/Chrome run driven by
-scripted model responses. It supports unique input/button grounding and retains
-executed results, attributes, accessible names, and XPath. It establishes SDK
-history shape, not model reasoning. Paid local tests separately exercise Gemini.
+The recorded history fixture projects a real Browser Use and Chrome run driven by scripted model responses. It
+establishes SDK history shape, not model reasoning. Candidate order is `data-testid`, `data-test`,
+`data-action`, `data-field`, `id`, `name`, `aria-label`, a unique tag, then ancestor, direct-child and
+`:nth-of-type()` structure. Every candidate is checked against the exact live node before capture. Classes
+are ignored. Structural CSS may break if the page is reordered later. Missing or unsupported targets fail
+explicitly and cannot authorize a write.
 
-Candidate order is `data-testid`, `data-test`, `data-action`, `data-field`, `id`,
-`name`, `aria-label`, a unique tag, then ancestor/direct-child/`:nth-of-type()`
-structure. Every candidate is checked against the exact live node before capture.
-Classes are ignored. Structural CSS may break if the page is reordered later.
-Missing or unsupported live targets fail explicitly and cannot authorize a write.
-
-Emergency browser cleanup depends on the pinned SDK's private local-browser
-watchdog PID. Only its owned process tree is targeted. Review this on upgrades.
-ChatGoogle caches a Google client; close both async and sync clients after every
-invocation. A real live run exposed unclosed transport warnings before this fix.
+Emergency browser cleanup depends on the pinned SDK's private local-browser watchdog PID; only its owned
+process tree is targeted, so review it on SDK upgrades. ChatGoogle caches a Google client that is closed
+(async and sync) after every invocation. Each invocation's browser profile and file-system directories under
+`state/` are deleted afterwards.
 
 ## Tests and evidence
 
-Commands are in [README.md](README.md). The ordinary suite makes no model calls.
-Real-DOM checks require `MENDER_BROWSER_TEST=1` and live dependencies. Paid tests
-require `MENDER_LIVE_TEST=1`; all portal/maps/screenshots/backups are temporary.
-Sanitized live measurement JSON is retained under ignored backend `state/`.
+Commands are in [README.md](README.md#tests-and-tools). The default suite makes no model calls. Key tests:
+[test_m2.py](tests/test_m2.py) (ordered two-field repair without a re-entrant deadlock; canary failure restores
+both patches as 1, 2, 3 then 4; later-repair failure; deadline during the agent; request cancellation keeps the
+shared recovery), [test_m3.py](tests/test_m3.py) (cooldown, reset, records, measurement ownership, waiters,
+sanitized messages, schema validation, review fixes), [test_writes.py](tests/test_writes.py) (write guard and
+sandbox site), [test_real_runner.py](tests/test_real_runner.py) (real runner and portal),
+[test_selectors.py](tests/test_selectors.py) (real DOM derivation), [test_m1.py](tests/test_m1.py) (regression
+coverage for artifacts, cleanup, rollback failure, atomic writes, tracing, reset and the import boundary).
 
-Primary [M2 checks](tests/test_m2.py):
+Adversarial mutations (isolated process, source untouched), each caught by a named test: no-op cooldown,
+expiry extended on hits, a key ignoring the failed step, a key ignoring the selector map, a key that includes
+class attributes, rolled-back records labelled committed, restoration replaced by a no-op, ordered-step
+positions forced to zero, the write guard removed, the navigation guard removed, the forwarded-header check
+removed, directory cleanup removed, and the explicit Sentry capture removed.
 
-- `test_two_fields_repair_in_order_without_reentrant_deadlock`: exact ordered
-  repairs and only two lock acquisitions, shared then exclusive. An outer
-  timeout catches a re-entrant deadlock; replay and canary actually execute.
-- `test_canary_failure_restores_both_patches_with_higher_version`: version
-  1 -> 2 -> 3 -> restored 4, with original fields and no committed diff.
-- `test_later_repair_failure_restores_first_patch`: earlier progress disappears
-  when later agent retries exhaust; no fourth invocation.
-- `test_deadline_during_agent_restores_first_patch`: shared deadline interrupts
-  an agent after a provisional write and restores the baseline.
-- `test_request_cancellation_after_first_patch_preserves_background_and_waiter`:
-  cancels an ASGI request task and verifies ongoing recovery plus waiter-owned
-  parameters and output. This is not a real TCP-disconnect test.
-- Retry, no-result, ambiguity, invalid candidate, schema rejection, bounded lock
-  waiting, shared lock deadline, missing canary, runner-spawn cancellation, and failed active-flight tests
-  exercise additional boundaries. The failed-flight test now proves the 15 s cooldown serves the original failure.
+### Measured runs
 
-[Real DOM checks](tests/test_selectors.py) mutate classes, exercise stable and
-structural selectors, escape quotes/backslashes/international attributes, and
-reject a missing live target. [M1 checks](tests/test_m1.py) retain regression
-coverage for malformed artifacts, cleanup, rollback failure, atomic-write
-failure, canary masking, tracing, reset, and the import boundary. Their response
-assertions now follow the user's withheld-field policy. Contract tests remain
-unchanged; terminal tests still preserve literal selectors and original records.
+Gemini `gemini-3.8-flash` (the default before the model comparison; see "Choosing a Gemini model"), local Chrome, SDK cost estimates (not billing receipts), single
+samples (not percentiles):
 
-### Live measurements
-
-Original retained M1 log: request 24.300 s, entire unittest 27.978 s; tokens and
-agent-only wall time were not retained and cannot be reconstructed.
-
-First instrumented M2 sample, actual Gemini against the localhost fixture:
-
-| Scenario | Request | Recovery | Entire test | Prompt / completion tokens | Total tokens |
+| Run | Request | Agent invocations | Tokens (prompt / completion) | SDK cost | Notes |
 | --- | --- | --- | --- | --- | --- |
-| Button | 19.588 s | 16.907 s | 21.948 s | 21,823 / 1,288 | 23,111 |
-| Two fields | 38.247 s | 35.669 s | 38.708 s | 43,638 / 3,254 | 46,892 |
+| Fixture, one broken button | 23.9 s | 1 | 21,820 / 1,487 | $0.0219 | records committed 1 to 2 |
+| Fixture, two broken fields | 43.0 s | 2 | 43,616 / 2,986 | $0.0439 | records 1 to 2 to 3 |
+| Real portal and runner, Chaos Mode, API loops | 21.5 to 40.3 s over 13 loops | 1 | about 29.7k / 2.2k to 2.5k | $0.028 to $0.032 | fast path 366 to 379 ms over HTTP (538 ms once, a cold first request); every record committed |
+| Sandbox site, save button | 28.9 s | 1 | n/a | $0.031 | exactly 3 writes: agent, replay, canary |
+| Dashboard, real browser, 3 loops | 29.9 to 32.4 s | 1 | n/a | about $0.031 | `rehearse_ui.py`, 3 of 3 pass |
 
-Both used gemini-3.8-flash, Python 3.12.2, browser-use 0.13.11, and local Chrome.
-SDK estimated costs were $0.02119725 and $0.044931, respectively. These are SDK
-estimates, not billing receipts. Cached prompt tokens were zero. Tokens follow
-the SDK's prompt-plus-completion convention; reasoning-token billing is not
-independently reconciled. Single samples do not establish a latency percentile.
+`python -m services.backend.rehearse 5` passed 5 of 5 loops, twice (before and after the canary change). The
+400 ms target is not proven: fixture and local-portal numbers do not describe a real site's latency.
 
-Final verification after explicit Google client cleanup:
+## Integration with the other services
 
-| Scenario | Backend request | Recovery | Entire test | Agent invocations | Prompt / completion | Total tokens |
-| --- | --- | --- | --- | --- | --- | --- |
-| Button | 20.743 s | 17.990 s | 23.076 s | 1, taking 16.788 s | 21,814 / 1,509 | 23,323 |
-| Two fields | 38.668 s | 36.096 s | 39.140 s | 2, taking 15.665 s and 16.635 s | 43,612 / 2,813 | 46,425 |
+`origin/phase-1` (portal and runner) and `origin/mender-dashboard` are merged. Cross-owner edits were made at
+the backend owner's request, each in its own commit so the owner can review or revert it:
 
-SDK estimated costs were $0.02201925 and $0.04325775. Both runs had complete
-SDK token summaries and zero cached prompt tokens. Both committed, with selector
-versions 2 and 3 respectively. The final live capture had no unclosed-transport
-warnings; the installed Google dependency still emits a deprecation warning.
+1. **Runner** `services/runner/execute.py`: accepts the agreed `--workflow --params --run-id` (plus
+   `--sentry-trace`, `--baggage`) and writes `runs/<run_id>/failure_payload.json` and `failure.png`; the old flags
+   still work. It returns `permit_id` (the portal echoes the submitted id) so the canary can tell a wrong repair.
+2. **Contracts** `contracts/selectors.json`: `target_url` is the real portal address (was `portal.example.gov`,
+   which made the backend reject every failure as `unexpected_page`). Only that field changed.
+3. **Runner** `reset_demo.py`: resets through the backend's locked endpoint when one is listening; edits the file
+   itself only when the connection is refused (a timeout or reset from a live backend is an error, not a bypass).
+4. **Dashboard**: sends the backend's request contract `{workflow, params}` (it sent `{workflow_id}` and got 422);
+   failed runs are labeled by what happened (reverted only if a rolled-back record exists, "no selector changed"
+   otherwise, "rollback failed" when so); request errors are shown instead of "Idle"; the previous run's banner and
+   label are hidden while a new run is in flight; rejected records are "never installed"; trace links use
+   `/explore/traces/trace/`; a Reset selectors button (live mode) calls the admin endpoint and reports a blocked backend.
 
-Retained final reports (ignored local artifacts):
-
-- `state/live-button-e4c2d555-f770-47ad-a8d7-0a47562a61e2.json`
-- `state/live-two-fields-da1a6595-4e04-41fc-b1cc-05814c0d07be.json`
-
-Default suite after M3: **83 tests, 76 passed and 7 opt-in tests skipped**. New
-coverage is in [tests/test_m3.py](tests/test_m3.py) (19 tests: cooldown, reset,
-records, measurement ownership, waiters, sanitized messages, schema validation).
-M1 and M2 omission assertions were updated to the new field policy.
-The combined live/real-DOM command ran **7 tests, all passed**
-(`MENDER_LIVE_TEST=1 MENDER_BROWSER_TEST=1`, `test_live` and `test_selectors`).
-
-### M3 live measurements (Gemini gemini-3.8-flash, local Chrome, fixture portal)
-
-| Scenario | Request | Recovery | Agent invocations | Prompt / completion / total tokens | SDK agent duration | SDK cost estimate |
-| --- | --- | --- | --- | --- | --- | --- |
-| Button | 23.939 s | 20.570 s | 1 | 21,820 / 1,487 / 23,307 | 17.568 s | $0.02194 |
-| Two fields | 43.009 s | 40.300 s | 2 | 43,616 / 2,986 / 46,602 | 34.312 s | $0.04391 |
-
-Usage, cost and agent duration were complete and reliable for both runs, so the
-responses carried `agent_cost_usd` and `agent_duration_ms`. Records were
-committed with versions 1->2 and 1->2->3. Costs are SDK estimates, not billing
-receipts; single samples are not a latency percentile.
-
-Adversarial mutations (isolated process, source untouched), each caught by named
-tests: a no-op cooldown, expiry extended on hits, a key ignoring the failed step,
-a key ignoring the selector map, and rolled_back records labelled committed.
-
-Adversarial mutation checks ran in an isolated test process without editing
-source: replacing restoration with a no-op made the canary rollback test fail;
-forcing every ordered-step position to zero made the two-field test fail.
-Both expected failures were detected, proving those acceptance checks can reject
-broken implementations. Mutation patches were removed before normal verification.
-
-## Integration with Person 1's real runner (phase-1, merged)
-
-`origin/phase-1` (portal + runner) is merged into this branch and the stack runs end to
-end. Cross-owner edits were made at the backend owner's request, each in its own commit
-so Person 1 and the contracts owner can review or revert them:
-
-1. `services/runner/execute.py`: accepts the agreed `--workflow --params --run-id`
-   (plus `--sentry-trace`, `--baggage`) and writes `runs/<run_id>/failure_payload.json`
-   and `failure.png`. The old flags still work. Person 1's `test_execute.py` passes.
-2. `contracts/selectors.json`: `target_url` is `http://127.0.0.1:3000/permits/apply`
-   (was `portal.example.gov`, which made the backend reject every failure as
-   `unexpected_page`). Only that field changed.
-3. `services/runner/reset_demo.py`: resets through the backend's locked
-   `POST /api/v1/admin/reset` when the backend is up (refusal during a recovery is an
-   error, never a bypass); edits the file directly only when no backend is listening.
-4. Portal and runner: the portal echoes the submitted permit id in the status badge
-   and the runner returns it as `permit_id`. The canary now compares it, so a repair
-   that fills or reads the wrong thing no longer returns the expected output.
-
-Real-runner coverage is [tests/test_real_runner.py](tests/test_real_runner.py), opt in
-with `MENDER_REAL_RUNNER=1` after `services/runner/setup_venv.sh`. It starts its own
-portal on a free port and runs the real runner through a thin wrapper
-([fixtures/real_runner_shim.py](tests/fixtures/real_runner_shim.py)) that only adds
-`--selectors` and `--target-url` for the temp root. The workflow definition is
-[workflows/permit-application.json](workflows/permit-application.json).
-
-Results: 3 free tests passed (fast path; chaos heal with real replay and canary;
-cooldown hit using real failure artifacts) and one paid test (real Gemini healed the
-real portal). The portal randomizes the submit button class on every load and the
-runner's `dom_snippet` embeds it, so `cooldown_key` ignores `class` attributes; the
-cooldown test fails without that.
-
-Full-stack proof (scratch copy of this branch, no wrapper): real portal, real runner,
-backend served by uvicorn, real Gemini. `python -m services.backend.rehearse 5` passed
-**5 of 5** loops (reset, fast, Chaos Mode, heal, fast), twice (before and after the
-canary change). Latest run: fast path 366-375 ms over HTTP; heals 24.3-29.9 s, agent
-time 20.2-25.8 s, SDK cost $0.028-$0.032; every record committed; versions monotonic.
-`reset_demo.py` was verified against the live backend and with the backend stopped.
-
-## Dashboard integration (merged from origin/mender-dashboard)
-
-Verified in a real browser (Playwright) against the real backend, runner and portal, with
-mocks off: a fast run shows "Fast path, cached selector / Deterministic Playwright"
-(409 ms); with Chaos Mode on, a real Gemini heal shows "Agent is re-indexing the page", then
-"Healed, selector patched / Browser Use Agent Engaged", 28.6 s, $0.0309, and the committed
-record `submit_button v1 -> v2` with old and new selectors; failures show the structured
-error. No browser console errors. The dashboard's response validator accepted every shape
-the backend produces (success, healed with cost, rolled back, failure with no records,
-refused write).
-
-Fixed in `services/dashboard` (own commit, authorized by the backend owner):
-- The request body was `{workflow_id}` and got HTTP 422 from the backend (Sentry recorded it).
-  It now sends `{workflow, params}`.
-- A failed run always said "Reverted after a failed recovery" and "the cache is still
-  fresh". The copy now reflects what happened: reverted only when a `rolled_back` record
-  exists, "no selector changed" otherwise, and a failed rollback is shown as needing
-  operator action.
-- Trace links used `/performance/trace/`; they now use `/explore/traces/trace/`, the path
-  Sentry's own API returned for this project. The dashboard's trace IDs were confirmed to
-  exist in Sentry.
-
-Still open for Person 3 or the contracts owner:
-- A cooldown hit looks like any other failure. The response has no field saying it was
-  cached or how many seconds remain, so the dashboard cannot show "retry in N s" without a
-  contract field (for example a cooldown remaining value). Not invented here.
-- The "agent re-indexing" and "agent cost" figures show fixture placeholders (4,200 ms,
-  $0.0020) until the first real heal in that browser session; history is in memory only.
-- Reset is not in the UI. Use `POST /api/v1/admin/reset` between demo runs.
+The real runner is reached in tests through a thin wrapper
+([fixtures/real_runner_shim.py](tests/fixtures/real_runner_shim.py)) that only adds `--selectors` and
+`--target-url` for the temp root. Full-stack proof (no wrapper): real portal, real runner, backend under uvicorn,
+real Gemini, real dashboard in Playwright, 3 of 3 loops including the Reset button.
 
 ## Write workflows (local sites only)
 
-Product scope: reads work on any reachable site; writes only on sites we control, because
-public sites cannot be modified. `Workflow.mutates` plus `config.write_allowed` enforce it
-in `main.py` before the runner starts. Verified: guard tests (public host refused, runner
-never started; loopback and allowlisted hosts run; lookalike hosts such as
-`127.0.0.1.evil.com` refused; removing the guard fails the refusal test), a real-browser
-chaos heal on [sandbox/records_site.py](sandbox/records_site.py) with a mocked agent
-(replay and canary each wrote once, state correct), and one paid run: real Gemini healed
-the save button in 28.9 s, $0.031, with exactly 3 writes (agent, replay, canary).
-`agent_blocked` stops a login or access wall after one invocation.
+Reads work on any reachable site; writes only on sites we control, because public sites cannot be modified.
+`Workflow.mutates` plus `config.write_allowed` enforce it before the runner starts (lookalike hosts such as
+`127.0.0.1.evil.com` and `user@host` URLs are refused). A real-browser chaos heal on the sandbox site (mocked
+agent) wrote exactly twice (replay and canary); a paid run wrote three times (agent, replay, canary), which is
+why writes need an idempotent action and a repeat-safe canary. A login or access wall ends as `agent_blocked`
+after the three-invocation cap. Public sites may block headless browsers; that is untested.
 
-Limits: one selector map still means one workflow per backend, so many sites need a map
-per workflow (a contract change). The fixture runner for the sandbox is test-only. The
-permit runner is still permit-specific, so reads on arbitrary sites need a generic runner
-(Person 1). Public sites may block headless browsers. Reading a result back is still not
-agent-healable.
+## Sentry
 
-## Sentry delivery (verified live)
+Project `mender-backend`, org `tanish-misra`. The DSN is only in the git-ignored `services/backend/.env`.
+Verified by querying the project:
 
-Project `mender-backend` in org `tanish-misra` (us region). The DSN lives only in the
-git-ignored `services/backend/.env` as `SENTRY_DSN`. Three rehearsal loops against the
-full stack were queried back through the Sentry MCP tools:
+- **Traces.** One trace per request: `http.server` > `workflow.execute` > `healer.recovery` > `healer.diagnose` >
+  `gen_ai.invoke_agent` > four `gen_ai.chat` (the SDK's Google integration) > `http.client`, then `healer.patch` >
+  `runner.execute` replays, plus the initial failed `runner.execute`. A heal trace had 28 spans and 36 logs.
+- **Agent fields.** `invoke_agent Browser Use` carries agent name, model, and input and output tokens.
+  A `healer.summary` child span carries flat `recovery.cost_usd`, `recovery.agent_duration_ms`,
+  `recovery.total_tokens` (reliable values only), `recovery.invocations` and `recovery.success` for dashboards. They are
+  on a child span because Sentry did not expose attributes set on the transaction's root span: a first attempt put them
+  there and the span data came back empty in Sentry, so a test now captures the transaction payload. Verified live:
+  `tags[recovery.cost_usd,number]` (0.03084075, identical to the response), `recovery.agent_duration_ms` and
+  `recovery.invocations` query correctly. `recovery.total_tokens` and `recovery.success` are set in code and covered
+  by the payload test, but Sentry's attribute list still did not offer them in repeated checks over about 15 minutes
+  (cause not found), so token charts use the agent span's `gen_ai.usage.*` attributes instead.
+- **Issues and noise.** One failed recovery used to open six issues because every ERROR log line became one. With
+  `LoggingIntegration(event_level=None)` only our fingerprinted events become issues (plus the Google client error,
+  grouped into one). Verified: a new failed recovery added one event to our issue and opened no new issue. The
+  `log.exception` sites capture explicitly so they still reach Sentry.
+- **Alert.** "Mender: agent recovery failed" (id 6187285) emails the team when a new or reappearing issue has tag
+  `tier:agent`. The expected runner failure from Chaos Mode is `tier:deterministic`, so a normal demo does not
+  fire it (checked: the filter matches the failed-recovery issues and not the runner issue).
+- **Dashboard.** The plugin cannot create dashboards; build it in the UI from the queries in the run guide.
+- No dropped events. Ingestion lags a minute or two, so counts queried right after a run look low. The trace
+  links the dashboard renders resolve to real traces. Not covered: Session Replay on the portal.
 
-- **One trace per request.** A heal trace had 28 spans, 36 logs and 1 error:
-  `http.server` > `workflow.execute` > `healer.recovery` > `healer.diagnose` >
-  `gen_ai.invoke_agent` > four `gen_ai.chat` spans (auto-created by the SDK's
-  `GoogleGenAIIntegration`) > `http.client`, then `healer.patch` > two `runner.execute`
-  replays, plus the initial failed `runner.execute`. The recovery transaction shares the
-  request's trace ID.
-- **AI Agent Monitoring fields.** `invoke_agent Browser Use` spans carry
-  `gen_ai.agent.name`, `gen_ai.request.model` (gemini-3.8-flash) and
-  `gen_ai.usage.input_tokens` / `output_tokens` (about 29.6k in, 2.2k to 2.5k out). These
-  were added in this milestone; the span previously had only the agent name.
-- **Grouping.** Three identical runner failures became one issue (`MENDER-BACKEND-1`,
-  3 events) via the stable fingerprint, with `runner.failure` context, `old_selector`
-  and `workflow` tags.
-- **Logs.** Backend logs arrive as Sentry logs with trace IDs.
-- **No dropped events** for spans in the window. Ingestion lags by up to a couple of
-  minutes, so counts queried immediately after a run look low.
+## Choosing a Gemini model
 
-Not yet checked: alert rules, a Sentry dashboard, and Session Replay on the portal
-(a Person 1 or 3 concern). Screenshots are not uploaded; only their local path is sent
-as event context.
+Decision: the default `GEMINI_MODEL` is now `gemini-3.5-flash-lite` (it was `gemini-3.8-flash`). Measured with
+[bench_models.py](bench_models.py): 90 paid trials across 8 callable models (about $2.18 estimated), each a full
+backend request with real Gemini, real Playwright replay, and the real canary, plus a second request that must succeed
+on the healed selector. Cost is the Browser Use SDK's pricing table, which counts thinking tokens as output; it is an
+estimate, not a bill.
 
-Remaining integration notes:
+Scenarios: **permit** (the demo; Chaos Mode breaks the submit button) and **sandbox-hard** (the local record editor with
+Chaos Mode plus a decoy search box and "Save draft" and "Clear form" buttons; a trial also requires the write to land on the
+site). A trial passes only if the heal committed, the next request succeeded, and the output was correct.
 
-- `status_badge` is read by the runner but is not an agent-healable step. Chaos Mode only
-  breaks `submit_button`, so this does not affect the demo.
-- The runner still defaults its URL to `127.0.0.1:3000` instead of reading the selector
-  map's `target_url`; they now agree, but they are two sources of truth.
+Summary under the shipped policy (an agent that gives up early is retried within the cap):
 
-## Remaining limits
+| Model | Permit demo | Time | Cost per heal | Hard sandbox | Time | Cost per heal |
+| --- | --- | --- | --- | --- | --- | --- |
+| `gemini-3.5-flash-lite` (default) | 5/5 | 11.4 s | $0.0052 | 5/5 | 12.3 s | $0.0054 |
+| `gemini-3.1-flash-lite` | 5/5 | 15.4 s | $0.0055 | 5/5 | 18.2 s | $0.0060 |
+| `gemini-3-flash-preview` | 5/5 | 24.1 s | $0.0131 | 5/5 | 23.5 s | $0.0139 |
+| `gemini-3.6-flash` | 5/5 | 22.0 s | $0.0164 | 5/5 | 27.0 s | $0.0201 |
+| `gemini-3.7-flash` | 5/5 | 25.2 s | $0.0297 | 5/5 | 27.1 s | $0.0320 |
+| `gemini-3.8-flash` (previous default) | 5/5 | 24.8 s | $0.0307 | 5/5 | 26.4 s | $0.0307 |
+| `gemini-3.5-flash` | 5/5 | 22.4 s | $0.0361 | 5/5 | 26.0 s | $0.0418 |
+| `gemini-3.1-pro-preview` | 5/5 | 54.8 s | $0.0484 | 5/5 | 45.0 s | $0.0373 |
 
-- The cooldown is in memory, per process, and a `dom_snippet` that embeds dynamic
-  content (token, clock) makes every failure look new, so it never hits (safe, but
-  defeats the feature). Verify against Person 1's real artifacts.
-- Reset needs git on the host and a committed original; it refuses during a recovery.
-  A rollback failure still needs a manual restore from the backup plus a restart.
-- No automatic crash recovery. Forced termination after a provisional write
-  may leave it installed; preserve backups and use reset, then restart.
-- The deadline assumes a responsive process/OS. Synchronous filesystem work
-  cannot be preempted by asyncio. Cleanup overruns or failures block the backend;
-  the 240-second ceiling is not a guarantee against an OS stall or forced kill.
-- POSIX locks/process groups, one Uvicorn worker, and one configured selector map
-  remain demo constraints. This is not a multi-worker distributed coordinator.
-- Subprocess stdout/stderr are buffered in memory. Output-volume limits and load
-  testing are not implemented. Read-only result extraction and iframes remain
-  unsupported; duplicate/dynamic labels may explicitly fail grounding.
-- Operator endpoints trust the socket peer address (loopback). Bind uvicorn to 127.0.0.1
-  and do not put a proxy in front that forwards `/api/v1/admin/*` or `/api/v1/status`.
-- Local fixture measurements do not prove real portal latency or the 400 ms
-  fast-path target. Live Sentry delivery, its UI presentation, and portal Session
-  Replay remain unverified; in-memory trace/grouping checks are narrower evidence.
+All trials:
 
-If restoration or cleanup fails, inspect the logged reason, preserve the baseline,
-stop owned resources, reset under the same lock, and restart before retrying.
+| Model | Scenario | Success | Mean time | Mean cost | Cost per success | Agent invocations | Failures |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| `gemini-3.5-flash-lite` | permit, give-up terminal (before the retry fix) | 5/5 | 11.4 s | $0.0052 | $0.0052 | 1.0 | none |
+| `gemini-3.5-flash-lite` | hard sandbox | 5/5 | 12.3 s | $0.0054 | $0.0054 | 1.0 | none |
+| `gemini-3.1-flash-lite` | permit, give-up terminal (before the retry fix) | 5/5 | 15.4 s | $0.0055 | $0.0055 | 1.0 | none |
+| `gemini-3.1-flash-lite` | hard sandbox | 5/5 | 18.2 s | $0.0060 | $0.0060 | 1.0 | none |
+| `gemini-3-flash-preview` | permit, give-up terminal (before the retry fix) | 5/5 | 24.1 s | $0.0131 | $0.0131 | 1.0 | none |
+| `gemini-3-flash-preview` | hard sandbox | 5/5 | 23.5 s | $0.0139 | $0.0139 | 1.0 | none |
+| `gemini-3.6-flash` | permit, give-up terminal (before the retry fix) | 5/5 | 22.0 s | $0.0164 | $0.0164 | 1.0 | none |
+| `gemini-3.6-flash` | hard sandbox | 5/5 | 27.0 s | $0.0201 | $0.0201 | 1.0 | none |
+| `gemini-3.7-flash` | permit, give-up terminal (before the retry fix) | 5/5 | 25.2 s | $0.0297 | $0.0297 | 1.0 | none |
+| `gemini-3.7-flash` | hard sandbox | 5/5 | 27.1 s | $0.0320 | $0.0320 | 1.0 | none |
+| `gemini-3.8-flash` | permit, give-up terminal (before the retry fix) | 4/5 | 22.8 s | $0.0276 | $0.0345 | 1.0 | agent_blocked |
+| `gemini-3.8-flash` | permit, retry fix | 5/5 | 24.8 s | $0.0307 | $0.0307 | 1.0 | none |
+| `gemini-3.8-flash` | hard sandbox | 5/5 | 26.4 s | $0.0307 | $0.0307 | 1.0 | none |
+| `gemini-3.5-flash` | permit, give-up terminal (before the retry fix) | 5/5 | 22.4 s | $0.0361 | $0.0361 | 1.0 | none |
+| `gemini-3.5-flash` | hard sandbox | 5/5 | 26.0 s | $0.0418 | $0.0418 | 1.0 | none |
+| `gemini-3.1-pro-preview` | permit, give-up terminal (before the retry fix) | 3/5 | 53.2 s | $0.0372 | $0.0620 | 1.0 | agent_blocked |
+| `gemini-3.1-pro-preview` | permit, retry fix | 5/5 | 54.8 s | $0.0484 | $0.0484 | 1.4 | none |
+| `gemini-3.1-pro-preview` | hard sandbox | 5/5 | 45.0 s | $0.0373 | $0.0373 | 1.0 | none |
+
+Findings:
+
+- Accuracy saturated: with the retry policy every model is 5/5 on both tasks, and none picked a decoy. The models differ
+  in cost and speed, so the cheapest fast model wins. `gemini-3.5-flash-lite` heals in about 11 s for $0.0052, which is
+  6x cheaper and 2.2x faster than `gemini-3.8-flash` on the same task. A confirmation through the dashboard (2 loops, real
+  UI, default model from `.env`) healed in 12.8 s and 11.8 s at $0.0065 and $0.0050.
+- The benchmark exposed a real flaw in our own change: `agent_blocked` (the agent declared failure) was terminal, so
+  `gemini-3.8-flash` (1 of 5) and `gemini-3.1-pro-preview` (2 of 5) failed normal heals by quitting early. It is now retryable,
+  which restored both to 5/5; the pro model then averaged 1.4 invocations (55 s, $0.0484 per heal).
+- Selectors were always attribute based (`button[data-action="submit"]` or `...="save"`), never structural.
+- Limits: 5 trials per model per scenario, one site family, SDK cost estimates, preview models that may be renamed or
+  repriced, and the 2.5 family is no longer available to this key. Treat close results (for example the two flash-lite
+  models) as ties. The raw results are in [benchmarks/model-comparison-2026-10-17.json](benchmarks/model-comparison-2026-10-17.json).
+
+## Code review
+
+An independent review of the whole branch produced 15 findings. Triaged against the code, 13 were fixed with a
+test that fails without the fix, 1 was fixed in part, and 1 is documented:
+
+- Fixed (backend): a navigation-step runner failure started a pointless recovery with a misleading error; the
+  runner interpreter default had no Playwright; `log.exception` sites stopped reaching Sentry; per-run browser profile directories were never deleted;
+  `rehearse.py` crashed on an omitted record list and ran paid loops on import; `bench_models.py` undercounted its
+  spend cap; `rehearse_ui.py` could pass on stale text.
+- Fixed (runner, dashboard): `reset_demo.py` bypassed the backend on a timeout; request errors were invisible;
+  stale banner and agent label during a new run; rejected records labeled "restored"; reset hid a blocked backend;
+  a quick tab switch left a panel invisible.
+- Partly fixed: the operator endpoints no longer accept a test-only host and refuse forwarded requests, but the
+  "loopback only" check is still satisfied by the Vite dev proxy. Do not run the dev server with `--host` or a
+  tunnel while the backend is live.
+- Documented, not fixed: the runner ignores the selector map's `target_url`, so the write guard is only as good as
+  the runner. Needs Person 1 (the message in `proposals/message-person1.md` asks for it).
+
+## Open items and limits
+
+- **Cooldown field.** A cooldown hit looks like any failure; `proposals/cooldown-remaining-field.md` proposes
+  `cooldown_remaining_s` so the dashboard can show "retry in N s". Needs the contracts owner, then three patches.
+- **Runner and sites.** The runner is permit-specific and ignores `target_url`; "any website" needs a generic
+  runner (Person 1) and a selector map per workflow (one `selectors.json` means one workflow per backend today).
+  Reading a result element back is not agent-healable. Public sites may block headless browsers.
+- **Contracts owner review.** PR #1 merged without it, including the `target_url` edit and two open questions:
+  `agent_duration_ms` as the sum of SDK step durations, and empty `heal_records` omitted instead of sent as `[]`.
+- **Dashboard.** The agent time and cost cards show fixture placeholders until the first real heal in a browser
+  session (history is in memory). Reset is a button, but Chaos Mode is still turned off on the portal.
+- **Sentry.** No dashboard was created (no tool for it); no Session Replay on the portal.
+- **Backend.** No crash recovery: a forced kill after a provisional write can leave it installed (use reset and
+  restart). Synchronous filesystem work cannot be preempted, so the 240 s ceiling is not a guarantee against an OS
+  stall. POSIX locks and process groups, one uvicorn worker, and an in-memory cooldown are demo constraints.
+  Subprocess output is buffered in memory with no size limit and there is no load testing. Iframes and dynamic
+  or duplicate labels may fail grounding. `runs/` failure screenshots are git-ignored but never pruned.
+- **Cooldown fingerprint.** A site whose failure DOM snippet contains dynamic content (a token or a clock) makes
+  every failure look new, so the cooldown never hits. Safe, but it defeats the feature.
+
+If restoration or cleanup fails, inspect the logged reason, preserve the baseline, stop owned resources, reset
+under the same lock, and restart before retrying.

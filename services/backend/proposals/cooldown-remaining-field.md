@@ -46,14 +46,15 @@ Backward compatible: older responses stay valid, and the field is optional like
 
 ## Verified before proposing
 
-Applied to a scratch copy of `main`:
+Applied to a scratch copy of the final tree (regenerated after the code review fixes, so they apply to the
+current `main`):
 - Contract tests pass, including the check that the schema equals the schema generated from
   the model (the schema is regenerated exactly as the owner does it: byte identical before the change).
-- Full backend suite: 95 tests pass. The new assertion fails if the backend stops setting the field.
-- Dashboard: typecheck, 39 tests (2 new) and the production build pass.
+- Full backend suite: 101 tests pass. The new assertion fails if the backend stops setting the field.
+- Dashboard: typecheck, 47 tests (2 new) and the production build pass.
 - In a real browser against the real backend: the first failure shows no countdown; the
   cached second failure shows "retry in 12 s", then 9 s three seconds later, then "Cooldown over".
-- All three patches apply cleanly to the current `main`.
+- All three patches apply cleanly from the repository root, alone and together (`git apply --check`).
 
 ## Decision needed
 
