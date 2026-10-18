@@ -1,3 +1,4 @@
+import { m } from "framer-motion";
 import type { Theme } from "../hooks/useTheme";
 
 export interface HeaderProps {
@@ -5,26 +6,31 @@ export interface HeaderProps {
   onToggleTheme: () => void;
 }
 
-/** The running head of the page: the product name over a double rule, like a bound notebook. */
+/** A frosted bar that stays at the top while the page scrolls under it. The theme swap is instant on purpose. */
 export default function Header({ theme, onToggleTheme }: HeaderProps) {
   return (
-    <header className="flex items-center justify-between gap-4 border-b-4 border-double border-ink pb-3 pt-6">
-      <span className="font-display text-xl tracking-tight">Mender</span>
-      <div role="group" aria-label="Color theme" className="flex">
-        {(["light", "dark"] as const).map((mode) => (
-          <button
-            key={mode}
-            type="button"
-            onClick={() => theme !== mode && onToggleTheme()}
-            aria-pressed={theme === mode}
-            className={`min-h-[44px] -ml-[1.5px] border-[1.5px] border-ink px-4 font-display text-sm first:ml-0 ${
-              theme === mode ? "bg-ink text-ground" : "bg-surface text-ink hover:bg-surface-subtle"
-            }`}
-          >
-            {mode === "light" ? "Light" : "Dark"}
-          </button>
-        ))}
+    <m.header
+      className="glass-bar sticky top-0 z-50"
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      transition={{ duration: 0.4, ease: "easeOut" }}
+    >
+      <div className="mx-auto flex h-16 w-full max-w-[1180px] items-center justify-between gap-4 px-5 sm:px-9">
+        <span className="font-display text-xl tracking-tight">Mender</span>
+        <div role="group" aria-label="Color theme" className="flex">
+          {(["light", "dark"] as const).map((mode) => (
+            <button
+              key={mode}
+              type="button"
+              onClick={() => theme !== mode && onToggleTheme()}
+              aria-pressed={theme === mode}
+              className="glass-rect -ml-px min-h-[44px] px-4 font-display text-sm first:ml-0"
+            >
+              {mode === "light" ? "Light" : "Dark"}
+            </button>
+          ))}
+        </div>
       </div>
-    </header>
+    </m.header>
   );
 }

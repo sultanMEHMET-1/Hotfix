@@ -22,13 +22,12 @@ export default function WorkflowPicker({ workflows, selected, onSelect, disabled
             disabled={disabled}
             onClick={() => onSelect(w.id)}
             aria-pressed={on}
-            title={`${w.goal} (${w.id})`}
             className={`-mt-[1.5px] flex min-h-[44px] items-center gap-2.5 border-[1.5px] border-ink px-4 font-display text-sm first:mt-0 sm:-ml-[1.5px] sm:mt-0 sm:first:ml-0 disabled:cursor-not-allowed disabled:opacity-50 ${
               on ? "bg-ink font-semibold text-ground" : "bg-surface text-ink-muted hover:bg-surface-subtle hover:text-ink"
             }`}
           >
             {workflowLabel(w.id)}
-            {w.mutates && <span className={`font-sans text-sm italic ${on ? "text-ground" : "text-warning"}`}>writes</span>}
+            {w.mutates && <span className={`font-sans text-sm ${on ? "text-ground" : "text-warning"}`}>writes</span>}
           </button>
         );
       })}

@@ -44,9 +44,9 @@ export default function VisualDiffViewer({ phase, result }: VisualDiffViewerProp
                   : "No selector changes. The cache is still fresh."}
         </p>
       ) : (
-        <ul className="mt-5 flex list-none flex-col gap-6 p-0">
-          {records.map((r) => (
-            <HealRecordRow key={r.field} record={r} />
+        <ul className="mt-5 list-none border-y-[1.5px] border-ink p-0">
+          {records.map((r, i) => (
+            <HealRecordRow key={r.field} record={r} index={i} />
           ))}
         </ul>
       )}

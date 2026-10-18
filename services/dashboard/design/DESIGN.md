@@ -24,15 +24,15 @@ Defined as RGB triplets in `src/styles/index.css`, light and a warm espresso dar
 
 ## Type
 
-Instrument Sans for headings and the ratio (display), IBM Plex Serif for prose and labels, IBM Plex Mono for every measured value, selector, id and timestamp, always with tabular figures. Scale: 14 / 15 / 17 / 22 / 34 / 52px, plus a fluid hero up to 8.5rem. Nothing that the audience needs is under 14px.
+Instrument Sans for headings and the ratio (display), Space Grotesk for prose and labels (the Telogify body face; it has no italic, so nothing is italicised), IBM Plex Mono for every measured value, selector, id and timestamp, always with tabular figures. Scale: 14 / 15 / 17 / 22 / 34 / 52px, plus a fluid hero up to 8.5rem. Nothing that the audience needs is under 14px.
 
 ## Structure
 
-One page, top to bottom: running head (double rule), the workflow name and its goal, ruled workflow tabs, the run action and its status, demo controls (a dashed, subordinate group), the measurement (cached run, agent repair, and the ratio as the hero, with both bars on one shared scale), the corrections log, and the run log. No tabs, no nested cards, no eyebrow labels. Square ink markers, never round dots.
+One page, top to bottom: a sticky frosted header (the Portfolio's glass recipe: a faint tint, a blur, a hairline; the Light | Dark control is two glass rectangles), "Selected:" and the site name with the workflow's goal, one control panel (workflow switcher, the Live switch and mock scenarios, the run action and its status), the measurement (fast replay and agent repair on one shared bar scale, durations in ms, s, then m s, the agent's cost only, and the ratio as the hero), the corrections ledger, and the run log. Corrections are git-style diffs with the evidence always visible in one plain sentence; there is nothing to expand. No tabs, no nested cards, no eyebrow labels. Square ink markers, never round dots.
 
 ## Motion
 
-One authored moment: when a result arrives, each committed correction is stamped onto the page (260ms, ease-out). While the agent works, a live elapsed clock counts up. Everything collapses under `prefers-reduced-motion`.
+Sections blur-fade in once as they scroll into view (the Telogify and Portfolio recipe: spring, blur 10px to 0, rise 10px), and the first fold fades in on load. While the agent works, a live elapsed clock counts up. Tooltips are short (a few words), shown on hover after half a second and at once on keyboard focus. Everything collapses under `prefers-reduced-motion`.
 
 ## Accessibility
 

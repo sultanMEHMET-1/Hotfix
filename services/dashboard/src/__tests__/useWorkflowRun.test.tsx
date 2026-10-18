@@ -34,7 +34,6 @@ describe("useWorkflowRun (mock mode)", () => {
   const FIXTURE_BENCHMARKS = {
     fastMs: successFixture.execution_time_ms,
     healMs: healedFixture.execution_time_ms,
-    fastCost: 0,
     healCost: healedFixture.agent_cost_usd,
   };
 
@@ -149,7 +148,7 @@ describe("useWorkflowRun (live mode)", () => {
     });
     expect(result.current.phase).toBe("done");
     // Live mode never invents the missing figure: no real fast run yet means n/a, not the fixture's 125 ms.
-    expect(result.current.benchmarks).toEqual({ fastMs: null, fastCost: null, healMs: 9000, healCost: 0.05 });
+    expect(result.current.benchmarks).toEqual({ fastMs: null, healMs: 9000, healCost: 0.05 });
   });
 
   it("reports errors", async () => {

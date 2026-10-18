@@ -3,13 +3,14 @@ import type { MockScenario } from "../api/mocks";
 import { executionPathLabel } from "../lib/cost";
 import type { RunPhase } from "../hooks/useWorkflowRun";
 import ResetButton from "./ResetButton";
+import Tooltip from "./Tooltip";
 import WorkflowPicker from "./WorkflowPicker";
 import StatusBadge, { badgeState, failedCopy } from "./StatusBadge";
 
-const SCENARIOS: { value: MockScenario; label: string }[] = [
-  { value: "fast", label: "Fast" },
-  { value: "heal", label: "Heal" },
-  { value: "rollback", label: "Rollback" },
+const SCENARIOS: { value: MockScenario; label: string; hint: string }[] = [
+  { value: "fast", label: "Fast", hint: "Cached run" },
+  { value: "heal", label: "Heal", hint: "Agent repair" },
+  { value: "rollback", label: "Rollback", hint: "Failed repair" },
 ];
 
 export interface ControlRowProps {
@@ -43,22 +44,25 @@ export default function ControlRow({
         <WorkflowPicker workflows={workflows} selected={workflowId} onSelect={onWorkflowChange} disabled={running} />
 
         <div className="flex flex-wrap items-center gap-3">
-          <button type="button" onClick={onToggleMocks} aria-pressed={!mocksOn} title="Filled: the real backend, runner and agent. Outlined: canned responses, no backend needed."
-            className={`${SECONDARY} ${!mocksOn ? "!bg-ink !text-ground" : ""}`}>
-            Live
-          </button>
+          <Tooltip label={mocksOn ? "Use real backend" : "Use sample data"} align="start">
+            <button type="button" onClick={onToggleMocks} aria-pressed={!mocksOn}
+              className={`${SECONDARY} ${!mocksOn ? "!bg-ink !text-ground" : ""}`}>
+              Live
+            </button>
+          </Tooltip>
           {mocksOn ? (
             <div className="flex" role="group" aria-label="Mock scenario">
               {SCENARIOS.map((s) => (
-                <button
-                  key={s.value}
-                  type="button"
-                  onClick={() => onScenarioChange(s.value)}
-                  aria-pressed={scenario === s.value}
-                  className={`${SECONDARY} -ml-[1.5px] first:ml-0 ${scenario === s.value ? "!bg-ink !text-ground" : ""}`}
-                >
-                  {s.label}
-                </button>
+                <Tooltip key={s.value} label={s.hint} className="-ml-[1.5px] first:ml-0">
+                  <button
+                    type="button"
+                    onClick={() => onScenarioChange(s.value)}
+                    aria-pressed={scenario === s.value}
+                    className={`${SECONDARY} ${scenario === s.value ? "!bg-ink !text-ground" : ""}`}
+                  >
+                    {s.label}
+                  </button>
+                </Tooltip>
               ))}
             </div>
           ) : (

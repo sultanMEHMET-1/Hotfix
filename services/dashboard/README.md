@@ -9,7 +9,7 @@ The look is a printed lab ledger: vellum paper, hard ink rules, and a rule that 
 ```bash
 npm ci
 npm run dev        # http://127.0.0.1:5173 (bound to localhost on purpose, see below)
-npm run typecheck && npm test   # 58 tests, independent of any .env.local
+npm run typecheck && npm test   # 63 tests, independent of any .env.local
 npm run build
 ```
 

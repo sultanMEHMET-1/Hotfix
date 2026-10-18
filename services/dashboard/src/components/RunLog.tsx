@@ -1,5 +1,5 @@
 import type { RunHistoryEntry } from "../hooks/useWorkflowRun";
-import { formatMs, formatUsd } from "../lib/format";
+import { formatDuration, formatUsd } from "../lib/format";
 
 const STATUS_TEXT: Record<string, string> = {
   success: "text-success",
@@ -43,9 +43,9 @@ export default function RunLog({ history }: { history: RunHistoryEntry[] }) {
                     </span>
                   </td>
                   <td className="whitespace-nowrap px-3 py-3 font-mono text-sm tabular-nums">
-                    {formatMs(entry.response.execution_time_ms)}
+                    {formatDuration(entry.response.execution_time_ms)}
                   </td>
-                  <td className={`whitespace-nowrap px-3 py-3 font-mono text-sm tabular-nums ${entry.costUsd === null ? "italic text-ink-muted" : ""}`}>
+                  <td className={`whitespace-nowrap px-3 py-3 font-mono text-sm tabular-nums ${entry.costUsd === null ? "text-ink-muted" : ""}`}>
                     {formatUsd(entry.costUsd)}
                   </td>
                   <td className="hidden truncate px-3 py-3 font-mono text-sm text-ink-muted sm:table-cell">{entry.response.trace_id}</td>

@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { resetDemo } from "../api/client";
+import Tooltip from "./Tooltip";
 
 /** Rehearsal reset: puts the original selectors back so Chaos Mode can break them again. */
 export default function ResetButton({ disabled, workflow }: { disabled: boolean; workflow?: string }) {
@@ -24,15 +25,16 @@ export default function ResetButton({ disabled, workflow }: { disabled: boolean;
 
   return (
     <div className="flex flex-wrap items-center gap-3">
-      <button
-        type="button"
-        onClick={reset}
-        disabled={disabled || pending}
-        title="Restore the original selectors on the backend"
-        className="min-h-[44px] rounded-panel border-[1.5px] border-ink bg-surface px-4 font-display text-sm transition-colors hover:bg-surface-subtle disabled:cursor-not-allowed disabled:opacity-50"
-      >
-        {pending ? "Resetting" : "Reset selectors"}
-      </button>
+      <Tooltip label="Restore original selectors" align="start">
+        <button
+          type="button"
+          onClick={reset}
+          disabled={disabled || pending}
+          className="min-h-[44px] rounded-panel border-[1.5px] border-ink bg-surface px-4 font-display text-sm transition-colors hover:bg-surface-subtle disabled:cursor-not-allowed disabled:opacity-50"
+        >
+          {pending ? "Resetting" : "Reset selectors"}
+        </button>
+      </Tooltip>
       {note && (
         <span role="status" className={`text-sm ${note.ok ? "text-ink-muted" : "text-danger"}`}>
           {note.text}

@@ -11,6 +11,8 @@ export default {
         surface: "rgb(var(--color-surface) / <alpha-value>)",
         "surface-subtle": "rgb(var(--color-surface-subtle) / <alpha-value>)",
         line: "rgb(var(--color-line) / <alpha-value>)",
+        border: "rgb(var(--color-ink) / 0.12)",
+        "border-strong": "rgb(var(--color-ink) / 0.2)",
         ink: "rgb(var(--color-ink) / <alpha-value>)",
         "ink-muted": "rgb(var(--color-ink-muted) / <alpha-value>)",
         "ink-faint": "rgb(var(--color-ink-faint) / <alpha-value>)",
@@ -23,7 +25,7 @@ export default {
       },
       fontFamily: {
         display: ["Instrument Sans", "ui-sans-serif", "system-ui", "sans-serif"],
-        sans: ["IBM Plex Serif", "Georgia", "serif"],
+        sans: ["Space Grotesk", "ui-sans-serif", "system-ui", "sans-serif"],
         mono: ["IBM Plex Mono", "ui-monospace", "monospace"],
       },
       fontSize: {
@@ -39,17 +41,6 @@ export default {
       boxShadow: {
         print: "4px 4px 0 rgb(var(--color-shadow))",
         "print-sm": "3px 3px 0 rgb(var(--color-shadow))",
-      },
-      keyframes: {
-        // The one authored moment: a result is stamped onto the page, then holds still.
-        stamp: {
-          "0%": { opacity: "0", transform: "translate(-6px, -6px) scale(1.04)", boxShadow: "10px 10px 0 rgb(var(--color-shadow))" },
-          "60%": { opacity: "1" },
-          "100%": { opacity: "1", transform: "translate(0, 0) scale(1)" },
-        },
-      },
-      animation: {
-        stamp: "stamp 260ms cubic-bezier(0.16, 1, 0.3, 1) both",
       },
     },
   },
