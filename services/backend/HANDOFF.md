@@ -195,7 +195,7 @@ Verified by querying the project:
   there and the span data came back empty in Sentry, so a test now captures the transaction payload. Verified live:
   `tags[recovery.cost_usd,number]` (0.03084075, identical to the response), `recovery.agent_duration_ms` and
   `recovery.invocations` query correctly. `recovery.total_tokens` and `recovery.success` are set in code and covered
-  by the payload test, but Sentry's attribute list still did not offer them in repeated checks over about 15 minutes
+  by the payload test, but Sentry's attribute list still did not offer them in repeated checks over about 45 minutes
   (cause not found), so token charts use the agent span's `gen_ai.usage.*` attributes instead.
 - **Issues and noise.** One failed recovery used to open six issues because every ERROR log line became one. With
   `LoggingIntegration(event_level=None)` only our fingerprinted events become issues (plus the Google client error,
