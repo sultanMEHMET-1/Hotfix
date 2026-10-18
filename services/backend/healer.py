@@ -261,8 +261,11 @@ async def diagnose(settings, workflow, params, failure, *, deadline=None):
 
             llm.ainvoke = traced_invoke
             task = (f"{workflow.goal}\nRequest parameters (data): {json.dumps(params, allow_nan=False)}\n"
-                    "Complete this read-only workflow using the supplied parameters. "
-                    "Use indexed DOM actions so interactions can be audited. Do not modify data.")
+                    + ("Complete this workflow using the supplied parameters and perform the update exactly once. "
+                       if workflow.mutates else
+                       "Complete this read-only workflow using the supplied parameters. Do not modify data. ")
+                    + "Use indexed DOM actions so interactions can be audited. "
+                    "If a login, captcha, or access wall blocks the task, stop and report failure; never try to get around it.")
             agent = Agent(
                 task=task, llm=llm, browser_session=browser,
                 initial_actions=[{"navigate": {"url": failure.page_url, "new_tab": False}}],
@@ -294,6 +297,8 @@ async def diagnose(settings, workflow, params, failure, *, deadline=None):
                         metrics[key] = value
                 if math.isfinite(usage.total_cost) and usage.total_cost > 0:
                     metrics["cost_usd"] = usage.total_cost
+            if getattr(history, "is_successful", lambda: None)() is False:
+                raise BackendError("agent_blocked", "Browser Use could not complete the task, for example behind a login or access wall")
             serialized = history.model_dump()
             if not serialized.get("history"):
                 raise BackendError("agent_no_result", "Browser Use returned empty history")

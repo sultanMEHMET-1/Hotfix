@@ -12,7 +12,7 @@ from pydantic import BaseModel, ConfigDict, Field
 import sentry_sdk
 
 from contracts.api_types import RecoveryError, WorkflowExecutionResponse
-from .config import BackendError, Settings, load_workflows, read_json, validator
+from .config import BackendError, Settings, load_workflows, read_json, validator, write_allowed
 from .recovery import Recovery
 from .reset import restore_original
 from .runner import Runner
@@ -177,6 +177,8 @@ def create_app(settings=None):
                                     raise HTTPException(503, "The selector map belongs to another workflow")
                                 if not all(step.field in selectors["fields"] for step in workflow.steps):
                                     raise HTTPException(503, "Workflow steps reference unknown selector fields")
+                                if workflow.mutates and not write_allowed(selectors["target_url"], settings.write_hosts):
+                                    raise BackendError("write_not_allowed", "This workflow changes data, so it only runs against local or allowlisted sites")
                                 result = await runner.execute(request.workflow, request.params, output_validator)
                             finally:
                                 await lock.__aexit__(None, None, None)

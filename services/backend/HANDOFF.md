@@ -241,6 +241,24 @@ canary change). Latest run: fast path 366-375 ms over HTTP; heals 24.3-29.9 s, a
 time 20.2-25.8 s, SDK cost $0.028-$0.032; every record committed; versions monotonic.
 `reset_demo.py` was verified against the live backend and with the backend stopped.
 
+## Write workflows (local sites only)
+
+Product scope: reads work on any reachable site; writes only on sites we control, because
+public sites cannot be modified. `Workflow.mutates` plus `config.write_allowed` enforce it
+in `main.py` before the runner starts. Verified: guard tests (public host refused, runner
+never started; loopback and allowlisted hosts run; lookalike hosts such as
+`127.0.0.1.evil.com` refused; removing the guard fails the refusal test), a real-browser
+chaos heal on [sandbox/records_site.py](sandbox/records_site.py) with a mocked agent
+(replay and canary each wrote once, state correct), and one paid run: real Gemini healed
+the save button in 28.9 s, $0.031, with exactly 3 writes (agent, replay, canary).
+`agent_blocked` stops a login or access wall after one invocation.
+
+Limits: one selector map still means one workflow per backend, so many sites need a map
+per workflow (a contract change). The fixture runner for the sandbox is test-only. The
+permit runner is still permit-specific, so reads on arbitrary sites need a generic runner
+(Person 1). Public sites may block headless browsers. Reading a result back is still not
+agent-healable.
+
 ## Sentry delivery (verified live)
 
 Project `mender-backend` in org `tanish-misra` (us region). The DSN lives only in the

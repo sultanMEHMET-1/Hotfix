@@ -5,6 +5,7 @@ import json
 import os
 from pathlib import Path
 import sys
+from urllib.parse import urlsplit
 
 import jsonschema
 from pydantic import BaseModel, ConfigDict, Field
@@ -51,6 +52,16 @@ class Workflow(BaseModel):
     params_schema: dict
     output_schema: dict
     canary: Canary | None = None
+    # A workflow that changes data on the site. Runs only against local or allowlisted hosts.
+    mutates: bool = False
+
+
+LOCAL_HOSTS = {"127.0.0.1", "localhost", "::1"}
+
+
+def write_allowed(url: str, extra_hosts=()):
+    """Mutating workflows may only touch sites we control: loopback or an explicit allowlist."""
+    return (urlsplit(url).hostname or "") in LOCAL_HOSTS | set(extra_hosts)
 
 
 @dataclass
@@ -65,6 +76,7 @@ class Settings:
     cleanup_reserve: float = 30
     lock_timeout: float = 5
     failure_cooldown: float = 15
+    write_hosts: tuple = ()
     demo_workflow: str | None = None
     headless: bool = True
     browser_executable: str | None = None
@@ -82,6 +94,7 @@ class Settings:
             runner_python=os.getenv("MENDER_RUNNER_PYTHON", sys.executable),
             runner_timeout=float(os.getenv("MENDER_RUNNER_TIMEOUT", "45")),
             agent_timeout=float(os.getenv("MENDER_AGENT_TIMEOUT", "90")),
+            write_hosts=tuple(h.strip() for h in os.getenv("MENDER_WRITE_HOSTS", "").split(",") if h.strip()),
             demo_workflow=os.getenv("MENDER_DEMO_WORKFLOW"),
             headless=os.getenv("MENDER_HEADLESS", "true").lower() != "false",
             browser_executable=os.getenv("MENDER_BROWSER_EXECUTABLE"),

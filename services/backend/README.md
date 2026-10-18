@@ -74,6 +74,7 @@ demo workflow definition is `workflows/permit-application.json`.
 | `MENDER_DEMO_WORKFLOW` | Selector map workflow ID; its definition must include a canary |
 | `MENDER_HEADLESS` | `true`; set `false` to display the agent browser |
 | `MENDER_BROWSER_EXECUTABLE` | Browser Use's local browser discovery |
+| `MENDER_WRITE_HOSTS` | Empty. Extra hostnames (comma separated) where workflows with `"mutates": true` may run, besides loopback |
 | `MENDER_PROPAGATE_TRACE` | `false`; enable only when the runner supports optional trace flags |
 | `MENDER_LOG_LEVEL` | `INFO`; use `DEBUG` for detailed SDK console output |
 
@@ -158,6 +159,26 @@ masking. Missing exclusion paths, root exclusions, array indexing, and masking
 all meaningful values are rejected. A canary is required for the demo workflow.
 Other workflow definitions may omit one, in which case verification is limited
 to successful replay and schema validation.
+
+## Read and write workflows
+
+Reading works against any site the runner can reach. A workflow that changes data sets
+`"mutates": true` in its definition. The backend refuses it (`error.code`
+`write_not_allowed`, no runner started) unless the selector map's `target_url` host is
+loopback or listed in `MENDER_WRITE_HOSTS`, and the agent prompt then asks for the update
+exactly once instead of "do not modify data". Expect repeated writes during a heal: the
+agent's own run, the replay, and the canary each save once, so write workflows need an
+idempotent action (set a value, then read it back) and a canary that is safe to repeat.
+
+Public sites that need a login or show a captcha are not bypassed. The agent is told to
+stop and report failure, which becomes `agent_blocked` (not retried); a runner that cannot
+find its selector behind such a wall fails and rolls back the same way.
+
+`sandbox/records_site.py` is a local stateful site for write demos
+(`python services/backend/sandbox/records_site.py --port 3100`). Chaos Mode breaks its
+save button; `GET /state` shows stored records and the write count; `POST /reset` clears it.
+Its tests are in `tests/test_writes.py` (`MENDER_BROWSER_TEST=1`, plus `MENDER_LIVE_TEST=1`
+for the paid Gemini heal).
 
 ## Verify and reset
 

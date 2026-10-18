@@ -106,6 +106,9 @@ class AdapterTests(unittest.IsolatedAsyncioTestCase):
     async def test_no_agent_result_is_retryable_and_clients_are_cleaned(self):
         await self.exercise_adapter("no_result")
 
+    async def test_agent_reporting_failure_behind_a_login_wall_is_not_retried(self):
+        await self.exercise_adapter("blocked")
+
     async def exercise_adapter(self, mode):
         from services.backend.healer import diagnose
         history = json.loads((FIXTURES / "recorded_history.json").read_text())
@@ -156,6 +159,7 @@ class AdapterTests(unittest.IsolatedAsyncioTestCase):
                         output = SimpleNamespace(action=[SimpleNamespace(get_index=lambda index=index: index)])
                         await self.kwargs["register_new_step_callback"](state, output, 0)
                 return SimpleNamespace(model_dump=lambda: history, total_duration_seconds=lambda: 1,
+                                       is_successful=lambda: False if mode == "blocked" else None,
                                        usage=SimpleNamespace(entry_count=1, total_cost=0.002))
         with tempfile.TemporaryDirectory() as directory:
             settings = Settings(root=Path(directory), agent_timeout=0.05 if mode == "timeout" else 2)
@@ -170,7 +174,8 @@ class AdapterTests(unittest.IsolatedAsyncioTestCase):
                 else:
                     with self.assertRaises(BackendError) as caught:
                         await diagnose(settings, Workflow.model_validate(workflow_definition()), {"record_id": "x"}, failure())
-                    expected = {"timeout": "agent_timeout", "unresolved": "unresolved_element", "no_result": "agent_no_result"}
+                    expected = {"timeout": "agent_timeout", "unresolved": "unresolved_element", "no_result": "agent_no_result",
+                                "blocked": "agent_blocked"}
                     self.assertEqual(caught.exception.code, expected.get(mode, "ambiguous_element"))
         self.assertEqual(closed, [True])
         self.assertEqual(clients_closed, ["async", "sync"])
