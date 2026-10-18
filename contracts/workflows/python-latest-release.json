@@ -4,7 +4,6 @@
     {
       "field": "downloads_link",
       "action_type": "click",
-      "role": "link",
       "label": "Downloads"
     }
   ],

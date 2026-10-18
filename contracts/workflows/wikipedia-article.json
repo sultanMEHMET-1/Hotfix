@@ -4,7 +4,7 @@
     {
       "field": "search_box",
       "action_type": "input",
-      "role": "searchbox",
+      "role": "textbox",
       "label": "Search Wikipedia",
       "param": "title"
     },
