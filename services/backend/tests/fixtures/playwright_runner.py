@@ -16,6 +16,7 @@ async def main():
     parser.add_argument("--workflow", required=True)
     parser.add_argument("--params", required=True)
     parser.add_argument("--run-id", required=True)
+    parser.add_argument("--contracts")
     args = parser.parse_args()
     params = json.loads(args.params)
     selectors = json.loads(Path(f"contracts/selectors/{args.workflow}.json").read_text())

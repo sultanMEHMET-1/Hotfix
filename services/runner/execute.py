@@ -20,9 +20,9 @@ PER_STEP_TIMEOUT_MS = 2_000
 DOM_SNIPPET_LIMIT = 1_500
 DEFAULT_PERMIT_ID = "PERMIT-2026-0042"
 DEFAULT_APPLICANT_NAME = "Davis Municipal Works"
-DEFAULT_TARGET_URL = "http://127.0.0.1:3000/permits/apply"
 REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
-DEFAULT_SELECTOR_PATH = REPOSITORY_ROOT / "contracts" / "selectors" / "permit-application.json"
+DEFAULT_CONTRACTS_DIR = REPOSITORY_ROOT / "contracts"
+DEFAULT_SELECTOR_PATH = DEFAULT_CONTRACTS_DIR / "selectors" / "permit-application.json"
 DEFAULT_SCHEMA_PATH = REPOSITORY_ROOT / "contracts" / "selectors.schema.json"
 DEFAULT_FAILURE_SCHEMA_PATH = REPOSITORY_ROOT / "contracts" / "failure_payload.schema.json"
 DEFAULT_ARTIFACTS_DIR = Path(__file__).resolve().parent / "artifacts"
@@ -97,50 +97,87 @@ def _selector(fields: dict[str, str], name: str) -> str:
         raise RunnerConfigurationError(f"Selector map is missing required field {name!r}") from error
 
 
-def execute_workflow(
+FIELD_NAME = re.compile(r"[a-z][a-z0-9_]*")
+READ_FORM = re.compile(r"text|attr:[A-Za-z_][A-Za-z0-9_:.-]*")
+
+
+def load_definition(path: Path) -> dict[str, Any]:
+    """Read a workflow definition (contracts/workflows/<id>.json) with a small hand-written check.
+
+    The runner's venv has only Playwright, so it cannot import the shared pydantic model.
+    """
+
+    definition = _read_json(path)
+    steps = definition.get("steps")
+    if not isinstance(steps, list) or not steps:
+        raise RunnerConfigurationError("Workflow needs a non-empty steps list")
+    for step in steps:
+        if not isinstance(step, dict) or not FIELD_NAME.fullmatch(str(step.get("field", ""))):
+            raise RunnerConfigurationError(f"Invalid workflow step: {step!r}")
+        if step.get("action_type") not in ("input", "click"):
+            raise RunnerConfigurationError(f"Unsupported action_type for {step['field']!r}")
+        if step["action_type"] == "input" and not step.get("param"):
+            raise RunnerConfigurationError(f"Input step {step['field']!r} needs a param")
+    outputs = definition.get("outputs")
+    if not isinstance(outputs, dict) or not outputs:
+        raise RunnerConfigurationError("Workflow needs outputs to read")
+    for key, spec in outputs.items():
+        if not isinstance(spec, dict) or not FIELD_NAME.fullmatch(str(spec.get("field", ""))):
+            raise RunnerConfigurationError(f"Invalid output {key!r}")
+        if not READ_FORM.fullmatch(str(spec.get("read", ""))):
+            raise RunnerConfigurationError(f"Output {key!r} must read 'text' or 'attr:<name>'")
+    return definition
+
+
+def execute_definition(
     page: Any,
     selector_map: dict[str, Any],
-    permit_id: str,
-    applicant_name: str,
+    definition: dict[str, Any],
+    params: dict[str, Any],
     target_url: str,
 ) -> dict[str, str]:
-    """Execute the fixed workflow on an existing Playwright page."""
+    """Run any workflow: open the page, perform the ordered steps, then read each output."""
 
     fields = selector_map["fields"]
-    permit_selector = _selector(fields, "input_permit_id")
-    applicant_selector = _selector(fields, "input_applicant_name")
-    submit_selector = _selector(fields, "submit_button")
-    status_selector = _selector(fields, "status_badge")
     page.set_default_timeout(PER_STEP_TIMEOUT_MS)
     page.set_default_navigation_timeout(PER_STEP_TIMEOUT_MS)
-
-    steps = (
-        ("navigation", target_url, lambda: page.goto(target_url, wait_until="domcontentloaded")),
-        ("input_permit_id", permit_selector, lambda: page.locator(permit_selector).fill(permit_id)),
-        (
-            "input_applicant_name",
-            applicant_selector,
-            lambda: page.locator(applicant_selector).fill(applicant_name),
-        ),
-        ("submit_button", submit_selector, lambda: page.locator(submit_selector).click()),
-    )
-    for failed_step, expected_selector, action in steps:
-        try:
-            action()
-        except Exception as error:
-            raise WorkflowFailure(failed_step, expected_selector, error) from error
-
     try:
-        status_badge = page.locator(status_selector)
-        status_badge.wait_for(state="visible", timeout=PER_STEP_TIMEOUT_MS)
-        status = status_badge.inner_text().strip()
-        inspector = status_badge.get_attribute("data-inspector")
-        permit_id_echo = status_badge.get_attribute("data-permit")
-        if not status or not inspector or not permit_id_echo:
-            raise ValueError("status badge did not contain status, inspector and permit data")
+        page.goto(target_url, wait_until="domcontentloaded")
     except Exception as error:
-        raise WorkflowFailure("status_badge", status_selector, error) from error
-    return {"status": status, "inspector": inspector, "permit_id": permit_id_echo}
+        raise WorkflowFailure("navigation", target_url, error) from error
+
+    for step in definition["steps"]:
+        selector = _selector(fields, step["field"])
+        try:
+            locator = page.locator(selector)
+            if step["action_type"] == "input":
+                locator.fill(str(params[step["param"]]))
+            else:
+                locator.click()
+        except Exception as error:
+            raise WorkflowFailure(step["field"], selector, error) from error
+
+    result: dict[str, str] = {}
+    visible: set[str] = set()
+    for key, spec in definition["outputs"].items():
+        selector = _selector(fields, spec["field"])
+        try:
+            locator = page.locator(selector)
+            if spec["field"] not in visible:  # the result may appear after an async update
+                locator.wait_for(state="visible", timeout=PER_STEP_TIMEOUT_MS)
+                visible.add(spec["field"])
+            if spec["read"] == "text":
+                value = locator.inner_text()
+            else:
+                attribute = spec["read"].removeprefix("attr:")
+                value = locator.get_attribute(attribute) or ""
+            value = value.strip()
+            if not value:
+                raise ValueError(f"output {key!r} is empty ({spec['read']})")
+        except Exception as error:
+            raise WorkflowFailure(spec["field"], selector, error) from error
+        result[key] = value
+    return result
 
 
 def _trim_dom(html: str, expected_selector: str) -> str:
@@ -211,7 +248,7 @@ def write_failure_artifacts(
     try:
         page_url = page.url
     except Exception:
-        page_url = "http://127.0.0.1:3000/permits/apply"
+        page_url = selector_map["target_url"]
     message = f"{type(failure.cause).__name__}: {failure.cause} (selector {failure.expected_selector})"
     if screenshot_error is not None:
         message += f"; screenshot capture failed: {screenshot_error}"
@@ -230,34 +267,57 @@ def write_failure_artifacts(
     return payload_path
 
 
-def _default_target_url(cli_target_url: str | None) -> str:
-    if cli_target_url:
-        return cli_target_url
-    return DEFAULT_TARGET_URL
-
-
 def _argument_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--selectors", type=Path, default=DEFAULT_SELECTOR_PATH)
-    parser.add_argument("--target-url", help="Override the target URL; defaults to the local portal")
-    parser.add_argument("--permit-id", default=DEFAULT_PERMIT_ID)
-    parser.add_argument("--applicant-name", default=DEFAULT_APPLICANT_NAME)
-    parser.add_argument("--artifacts-dir", type=Path, default=DEFAULT_ARTIFACTS_DIR)
-    parser.add_argument("--headed", action="store_true", help="Show the browser while executing")
     # Backend runner contract: --workflow <id> --params '<json>' --run-id <uuid>. Artifacts go to
     # runs/<run_id>/ (failure_payload.json, failure.png) relative to the working directory.
-    parser.add_argument("--workflow")
-    parser.add_argument("--params", help="JSON object with permit_id and applicant_name")
+    parser.add_argument("--workflow", default="permit-application")
+    parser.add_argument("--params", help="JSON object with the workflow's parameters")
     parser.add_argument("--run-id")
     parser.add_argument("--sentry-trace")
     parser.add_argument("--baggage")
+    parser.add_argument("--contracts", type=Path, default=DEFAULT_CONTRACTS_DIR,
+                        help="Folder with workflows/<id>.json and selectors/<id>.json")
+    parser.add_argument("--selectors", type=Path, help="Override the selector map path")
+    parser.add_argument("--target-url", help="Override the map's target_url")
+    parser.add_argument("--permit-id", default=DEFAULT_PERMIT_ID, help="Permit workflow only, when --params is absent")
+    parser.add_argument("--applicant-name", default=DEFAULT_APPLICANT_NAME, help="Permit workflow only, when --params is absent")
+    parser.add_argument("--artifacts-dir", type=Path, default=DEFAULT_ARTIFACTS_DIR)
+    parser.add_argument("--headed", action="store_true", help="Show the browser while executing")
     return parser
+
+
+def _parameters(args: argparse.Namespace) -> dict[str, Any]:
+    if args.params:
+        try:
+            params = json.loads(args.params)
+        except ValueError as error:
+            raise RunnerConfigurationError(f"invalid --params: {error}") from error
+        if not isinstance(params, dict):
+            raise RunnerConfigurationError("--params must be a JSON object")
+        return params
+    if args.workflow == "permit-application":
+        return {"permit_id": args.permit_id, "applicant_name": args.applicant_name}
+    raise RunnerConfigurationError("--params is required")
 
 
 def main(argv: list[str] | None = None) -> int:
     args = _argument_parser().parse_args(argv)
     try:
-        selector_map = load_selector_map(args.selectors)
+        if not re.fullmatch(r"[a-z0-9]+(?:-[a-z0-9]+)*", args.workflow):
+            raise RunnerConfigurationError(f"invalid workflow id {args.workflow!r}")
+        selector_map = load_selector_map(args.selectors or args.contracts / "selectors" / f"{args.workflow}.json")
+        if selector_map["workflow_id"] != args.workflow:
+            raise RunnerConfigurationError(f"selector map belongs to {selector_map['workflow_id']!r}, not {args.workflow!r}")
+        definition = load_definition(args.contracts / "workflows" / f"{args.workflow}.json")
+        missing = [name for name in [s["field"] for s in definition["steps"]] + [o["field"] for o in definition["outputs"].values()]
+                   if name not in selector_map["fields"]]
+        if missing:
+            raise RunnerConfigurationError(f"selector map is missing {sorted(set(missing))}")
+        params = _parameters(args)
+        absent = [s["param"] for s in definition["steps"] if s["action_type"] == "input" and s["param"] not in params]
+        if absent:
+            raise RunnerConfigurationError(f"missing params {absent}")
     except RunnerConfigurationError as error:
         print(f"runner configuration error: {error}", file=sys.stderr)
         return 2
@@ -271,35 +331,19 @@ def main(argv: list[str] | None = None) -> int:
         )
         return 2
 
-    permit_id, applicant_name = args.permit_id, args.applicant_name
     artifacts_dir, screenshot_name = args.artifacts_dir, "failure_latest.png"
-    if args.workflow and args.workflow != selector_map["workflow_id"]:
-        print(f"runner configuration error: unknown workflow {args.workflow!r}", file=sys.stderr)
-        return 2
-    if args.params:
-        try:
-            params = json.loads(args.params)
-            permit_id, applicant_name = params["permit_id"], params["applicant_name"]
-        except (ValueError, KeyError, TypeError) as error:
-            print(f"runner configuration error: invalid --params: {error}", file=sys.stderr)
-            return 2
     if args.run_id:
         artifacts_dir, screenshot_name = Path("runs") / args.run_id, "failure.png"
-    target_url = _default_target_url(args.target_url)
+    target_url = args.target_url or selector_map["target_url"]
     try:
         with sync_playwright() as playwright:
-            browser = playwright.chromium.launch(headless=not args.headed)
+            browser = playwright.chromium.launch(
+                headless=not args.headed, executable_path=os.environ.get("MENDER_BROWSER_EXECUTABLE") or None)
             try:
                 page = browser.new_page()
                 try:
                     workflow_started = perf_counter()
-                    result = execute_workflow(
-                        page,
-                        selector_map,
-                        permit_id,
-                        applicant_name,
-                        target_url,
-                    )
+                    result = execute_definition(page, selector_map, definition, params, target_url)
                 except WorkflowFailure as failure:
                     payload_path = write_failure_artifacts(page, selector_map, failure, artifacts_dir, screenshot_name)
                     print(f"runner failed: {failure}; wrote {payload_path}", file=sys.stderr)

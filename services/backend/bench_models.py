@@ -40,7 +40,7 @@ from services.backend.tests.test_real_runner import PARAMS as PERMIT_PARAMS
 from services.backend.tests.test_real_runner import ROOT, VENV_PYTHON, free_port
 from services.backend.tests.test_writes import RECORD_UPDATE
 
-FIXTURES = ROOT / "services/backend/tests/fixtures"
+RUNNER = ROOT / "services/runner/execute.py"
 UNKNOWN_COST_USD = 0.15  # counted toward --max-usd when a trial reports no reliable cost
 STABLE = ("data-action", "data-testid", "aria-label", "[id", "#")  # attribute or id based
 FRAGILE = ("nth-", ">", ":first", ":last")
@@ -66,14 +66,14 @@ SCENARIOS = {
         "server": [str(VENV_PYTHON), str(ROOT / "services/portal/server.py")], "path": "/permits/apply",
         "workflow": "permit-application", "definition": PERMIT_DEFINITION, "params": PERMIT_PARAMS,
         "chaos": {"enabled": True}, "field": "submit_button",
-        "runner": FIXTURES / "real_runner_shim.py", "runner_python": None,
+        "runner": RUNNER,
         "wrong_output": lambda data: data.get("permit_id") != PERMIT_PARAMS["permit_id"],
     },
     "sandbox-hard": {
         "server": [sys.executable, str(ROOT / "services/backend/sandbox/records_site.py")], "path": "/records",
         "workflow": "record-update", "definition": RECORD_UPDATE, "params": SANDBOX_PARAMS,
         "chaos": {"enabled": True, "hard": True}, "field": "save_button",
-        "runner": FIXTURES / "sandbox_runner.py", "runner_python": sys.executable,
+        "runner": RUNNER,
         "wrong_output": lambda data: data != {"record_id": SANDBOX_PARAMS["record_id"], "value": SANDBOX_PARAMS["value"]},
     },
 }
@@ -87,13 +87,10 @@ def trial(model, scenario, base_url, chrome):
         baseline["target_url"] = f"{base_url}{spec['path']}"
         selectors_path = make_root(root, spec["workflow"], spec["definition"], baseline)
         env = {"SENTRY_DSN": "", "GEMINI_MODEL": model, "ANONYMIZED_TELEMETRY": "false",
-               "MENDER_BROWSER_EXECUTABLE": chrome, "REAL_RUNNER_PYTHON": str(VENV_PYTHON),
-               "REAL_PORTAL_URL": base_url, "REAL_RUNNER_SCRIPT": str(ROOT / "services/runner/execute.py"),
-               "REAL_PLAYWRIGHT_BROWSERS": str(ROOT / ".venv/playwright-browsers")}
-        kwargs = {"runner_python": spec["runner_python"]} if spec["runner_python"] else {}
+               "MENDER_BROWSER_EXECUTABLE": chrome}
         with patch.dict(os.environ, env):
-            settings = Settings(root=root, runner_script=spec["runner"], runner_timeout=30,
-                                browser_executable=chrome or None, **kwargs)
+            settings = Settings(root=root, runner_script=RUNNER, runner_python=str(VENV_PYTHON), runner_timeout=30,
+                                browser_executable=chrome or None)
             with TestClient(create_app(settings)) as client:
                 def post():
                     return client.post("/api/v1/run-workflow",

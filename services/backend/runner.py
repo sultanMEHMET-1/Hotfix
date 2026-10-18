@@ -49,7 +49,7 @@ class Runner:
         run_id = str(uuid4())
         args = [self.settings.runner_python, str(self.settings.script),
                 "--workflow", workflow_id, "--params", json.dumps(params, allow_nan=False),
-                "--run-id", run_id]
+                "--run-id", run_id, "--contracts", str(self.settings.root / "contracts")]
         if self.settings.propagate_trace:
             for flag, value in (("--sentry-trace", sentry_sdk.get_traceparent()),
                                 ("--baggage", sentry_sdk.get_baggage())):

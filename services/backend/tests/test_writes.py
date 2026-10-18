@@ -25,24 +25,9 @@ from services.backend.tests.support import make_root
 from services.backend.tests.test_m2 import M2Harness
 
 ROOT = Path(__file__).resolve().parents[3]
-FIXTURES = Path(__file__).parent / "fixtures"
 SAVE = 'button[data-action="save"]'
 
-RECORD_UPDATE = {
-    "goal": "Enter the record ID and the new value, save the record exactly once, and report the saved value.",
-    "steps": [
-        {"field": "input_record_id", "action_type": "input", "role": "textbox", "label": "Record ID"},
-        {"field": "input_value", "action_type": "input", "role": "textbox", "label": "New value"},
-        {"field": "save_button", "action_type": "click", "role": "button", "label": "Save record"},
-    ],
-    "params_schema": {"type": "object", "required": ["record_id", "value"], "additionalProperties": False,
-                      "properties": {"record_id": {"type": "string"}, "value": {"type": "string"}}},
-    "output_schema": {"type": "object", "required": ["record_id", "value"], "additionalProperties": False,
-                      "properties": {"record_id": {"type": "string"}, "value": {"type": "string"}}},
-    "canary": {"params": {"record_id": "canary-record", "value": "canary-value"},
-               "expected_output": {"record_id": "canary-record", "value": "canary-value"}},
-    "mutates": True,
-}
+RECORD_UPDATE = json.loads((ROOT / "contracts/workflows/record-update.json").read_text())
 
 
 class WriteGuardTests(unittest.TestCase):
@@ -113,7 +98,8 @@ class SandboxSiteTests(unittest.TestCase):
         env.start()
         self.addCleanup(env.stop)
         from services.backend.config import Settings
-        self.settings = Settings(root=self.root, runner_script=FIXTURES / "sandbox_runner.py", runner_timeout=30,
+        self.settings = Settings(root=self.root, runner_script=ROOT / "services/runner/execute.py",
+                                 runner_python=str(ROOT / ".venv/bin/python"), runner_timeout=30,
                                  browser_executable=executable or None)
         self.client = TestClient(create_app(self.settings))
         self.client.__enter__()
@@ -131,7 +117,7 @@ class SandboxSiteTests(unittest.TestCase):
 
     def test_save_works_and_the_site_really_changes(self):
         payload = self.request()
-        self.assertEqual((payload["status"], payload["data"]), ("success", {"record_id": "rec-1", "value": "hello"}))
+        self.assertEqual((payload["status"], payload["data"]), ("success", {"record_id": "rec-1", "value": "hello"}), payload)
         self.assertEqual(self.state()["records"], {"rec-1": "hello"})
 
     def test_chaos_heal_repeats_the_write_idempotently(self):

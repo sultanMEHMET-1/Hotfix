@@ -1,6 +1,6 @@
 """M3 against Person 1's real Playwright runner and portal. Opt in with MENDER_REAL_RUNNER=1.
 
-The runner is reached through a test-only CLI shim (see fixtures/real_runner_shim.py).
+The runner is the real services/runner/execute.py, pointed at the temp root by --contracts.
 Mocked-agent tests are free; the Gemini test also needs MENDER_LIVE_TEST=1.
 """
 
@@ -24,7 +24,6 @@ from services.backend.main import create_app
 from services.backend.tests.support import make_root
 
 ROOT = Path(__file__).resolve().parents[3]
-FIXTURES = Path(__file__).parent / "fixtures"
 VENV_PYTHON = ROOT / ".venv/bin/python"
 SUBMIT = '#submit-btn'
 HEALED = 'button[data-action="submit"]'
@@ -63,12 +62,11 @@ class RealRunnerTests(unittest.TestCase):
         self.baseline["target_url"] = f"{self.portal}/permits/apply"
         self.path = make_root(self.root, "permit-application", DEFINITION, self.baseline)
         env = patch.dict(os.environ, {
-            "SENTRY_DSN": "", "REAL_RUNNER_PYTHON": str(VENV_PYTHON), "REAL_PORTAL_URL": self.portal,
-            "REAL_RUNNER_SCRIPT": str(ROOT / "services/runner/execute.py"),
-            "REAL_PLAYWRIGHT_BROWSERS": str(ROOT / ".venv/playwright-browsers"), "ANONYMIZED_TELEMETRY": "false"})
+            "SENTRY_DSN": "", "ANONYMIZED_TELEMETRY": "false"})
         env.start()
         self.addCleanup(env.stop)
-        self.settings = Settings(root=self.root, runner_script=FIXTURES / "real_runner_shim.py", runner_timeout=30)
+        self.settings = Settings(root=self.root, runner_script=ROOT / "services/runner/execute.py",
+                                 runner_python=str(VENV_PYTHON), runner_timeout=30)
         self.client = TestClient(create_app(self.settings))
         self.client.__enter__()
         self.addCleanup(self.client.__exit__, None, None, None)

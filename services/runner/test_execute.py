@@ -6,9 +6,12 @@ from types import SimpleNamespace
 
 from execute import (
     PER_STEP_TIMEOUT_MS,
+    RunnerConfigurationError,
     WorkflowFailure,
     _trim_dom,
     _validate_failure_payload,
+    execute_definition,
+    load_definition,
     load_selector_map,
     write_failure_artifacts,
 )
@@ -84,6 +87,94 @@ class RunnerContractTests(unittest.TestCase):
             with self.subTest(failure=type(failure).__name__), patch("reset_demo.urlopen", side_effect=failure):
                 with self.assertRaises(ResetError):
                     reset_through_backend("http://127.0.0.1:8000")
+
+
+class RecordingPage:
+    """A page that records what the runner does and can be told to fail one selector."""
+
+    def __init__(self, texts=None, attributes=None, fail_on=None):
+        self.calls, self.texts, self.attributes, self.fail_on = [], texts or {}, attributes or {}, fail_on
+
+    def set_default_timeout(self, value): pass
+    def set_default_navigation_timeout(self, value): pass
+
+    def goto(self, url, wait_until):
+        self.calls.append(("goto", url))
+        if self.fail_on == "navigation":
+            raise TimeoutError("net::ERR_CONNECTION_REFUSED")
+
+    def locator(self, selector):
+        page = self
+
+        class Locator:
+            def _act(self, name, *args):
+                page.calls.append((name, selector, *args))
+                if page.fail_on == selector:
+                    raise TimeoutError(f"waiting for locator({selector})")
+
+            def fill(self, value): self._act("fill", value)
+            def click(self): self._act("click")
+            def wait_for(self, state, timeout): self._act("wait_for", state)
+            def inner_text(self): return page.texts.get(selector, "")
+            def get_attribute(self, name): return page.attributes.get((selector, name))
+
+        return Locator()
+
+
+class GenericExecutorTests(unittest.TestCase):
+    DEFINITION = {
+        "steps": [
+            {"field": "name_input", "action_type": "input", "param": "name"},
+            {"field": "go", "action_type": "click"},
+        ],
+        "outputs": {"label": {"field": "result", "read": "text"}, "code": {"field": "result", "read": "attr:data-code"}},
+    }
+    MAP = {"workflow_id": "demo", "version": 1, "target_url": "http://site.test/form",
+           "fields": {"name_input": "#n", "go": "#go", "result": "#out"}}
+
+    def run_it(self, page, params=None):
+        return execute_definition(page, self.MAP, self.DEFINITION, params or {"name": "Ada"}, self.MAP["target_url"])
+
+    def test_opens_the_maps_url_runs_steps_in_order_then_reads_each_output(self):
+        page = RecordingPage(texts={"#out": " Done "}, attributes={("#out", "data-code"): "42"})
+        self.assertEqual(self.run_it(page), {"label": "Done", "code": "42"})
+        self.assertEqual(page.calls, [("goto", "http://site.test/form"), ("fill", "#n", "Ada"), ("click", "#go"),
+                                      ("wait_for", "#out", "visible")])  # waits once for a field read twice
+
+    def test_each_failure_names_the_step_and_selector_the_backend_can_repair(self):
+        for fail_on, step, selector in (("navigation", "navigation", "http://site.test/form"), ("#n", "name_input", "#n"),
+                                        ("#go", "go", "#go")):
+            with self.subTest(fail_on=fail_on):
+                with self.assertRaises(WorkflowFailure) as caught:
+                    self.run_it(RecordingPage(fail_on=fail_on))
+                self.assertEqual((caught.exception.failed_step, caught.exception.expected_selector), (step, selector))
+
+    def test_a_missing_or_empty_read_fails_at_the_output_field(self):
+        with self.assertRaises(WorkflowFailure) as caught:
+            self.run_it(RecordingPage(texts={"#out": "Done"}))  # attribute missing
+        self.assertEqual(caught.exception.failed_step, "result")
+        with self.assertRaises(WorkflowFailure):
+            self.run_it(RecordingPage(texts={"#out": "  "}, attributes={("#out", "data-code"): "42"}))
+
+    def test_the_real_definitions_load_with_the_hand_written_check(self):
+        for name in ("permit-application", "record-update"):
+            definition = load_definition(REPOSITORY_ROOT / "contracts" / "workflows" / f"{name}.json")
+            self.assertTrue(definition["outputs"])
+
+    def test_bad_definitions_are_rejected(self):
+        bad = {
+            "no steps": {"steps": [], "outputs": self.DEFINITION["outputs"]},
+            "no outputs": {"steps": self.DEFINITION["steps"]},
+            "input without param": {"steps": [{"field": "a", "action_type": "input"}], "outputs": self.DEFINITION["outputs"]},
+            "hover": {"steps": [{"field": "a", "action_type": "hover"}], "outputs": self.DEFINITION["outputs"]},
+            "bad read": {"steps": self.DEFINITION["steps"], "outputs": {"x": {"field": "result", "read": "html"}}},
+        }
+        for label, definition in bad.items():
+            with self.subTest(case=label), tempfile.TemporaryDirectory() as directory:
+                path = Path(directory) / "w.json"
+                path.write_text(json.dumps(definition))
+                with self.assertRaises(RunnerConfigurationError):
+                    load_definition(path)
 
 
 if __name__ == "__main__":
