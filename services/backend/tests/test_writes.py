@@ -219,6 +219,18 @@ class SandboxSiteTests(unittest.TestCase):
         self.expect(page.locator("#save-btn")).to_be_visible()
         self.expect(page.locator("#out-value")).to_have_attribute("data-testid", "result-value")
 
+    def test_bodies_that_are_not_objects_get_a_400_and_a_flag_restored_by_a_legacy_reset_stays_off(self):
+        from urllib.error import HTTPError
+        for path in ("/chaos", "/records", "/supplier-note"):
+            for body in (b"[]", b'"x"', b"5", b"{not json"):
+                with self.subTest(path=path, body=body), self.assertRaises(HTTPError) as caught:
+                    urlopen(Request(f"{self.site}{path}", body, method="POST"), timeout=3)
+                self.assertEqual(caught.exception.code, 400)
+        self.post("/chaos", {"break": "input"})
+        self.post("/chaos", {"break": "login"})
+        self.post("/chaos", {"enabled": False})
+        self.assertEqual(self.state()["broken"], [])
+
     def test_the_break_button_applies_one_more_change_per_click_and_restore_undoes_them(self):
         page = self.page()
         self.expect(page.locator("#restore-btn")).to_be_disabled()

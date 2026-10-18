@@ -263,6 +263,10 @@ def main():
                 try:
                     row = trial(model, args.scenario, urls[condition], chrome, condition=condition)
                 except Exception as exc:
+                    try:
+                        http(f"{urls[condition]}/chaos", {"enabled": False})  # never leave a site broken for the next trial
+                    except OSError:
+                        pass
                     row = {"model": model, "scenario": args.scenario, "condition": condition,
                            "ok": False, "status": "error", "error": f"trial_exception:{type(exc).__name__}",
                            "wall_s": round(time.perf_counter() - started, 3), "selector": None,

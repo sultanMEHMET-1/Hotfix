@@ -414,7 +414,10 @@ class Handler(BaseHTTPRequestHandler):
 
     def body(self):
         length = min(int(self.headers.get("Content-Length", "0")), 10_000)
-        return json.loads(self.rfile.read(length) or b"{}")
+        data = json.loads(self.rfile.read(length) or b"{}")
+        if not isinstance(data, dict):
+            raise ValueError("body must be an object")
+        return data
 
     def do_GET(self):
         path = urlsplit(self.path).path
@@ -458,9 +461,9 @@ class Handler(BaseHTTPRequestHandler):
                             STATE[BREAKS[key][0]] = True
                             STATE["last_break"] = key
                     else:
-                        STATE["chaos"] = bool(data["enabled"])
-                        for key in ("hard", "read", "input", "login"):
-                            STATE[key] = bool(data.get(key, False))
+                        enabled = bool(data["enabled"])
+                        for flag, _, _ in BREAKS.values():
+                            STATE[flag] = enabled if flag == "chaos" else bool(data.get(flag, False))
                         STATE["last_break"] = None
                     return self.reply(200, chaos_reply(STATE))
                 if path == "/reset":
