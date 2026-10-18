@@ -130,7 +130,10 @@ describe("the redesigned result views", () => {
     expect(screen.getByText("3.0")).toBeInTheDocument();
     rerender(<BenchmarkSummary benchmarks={{ fastMs: 100, healMs: null, healCost: null }} />);
     expect(screen.getByText("110×")).toBeInTheDocument();
-    expect(screen.getByText(/from our benchmark/)).toBeInTheDocument();
+    expect(screen.getByText(/about 11 s and half a cent, from our own trials/)).toBeInTheDocument();
+    rerender(<BenchmarkSummary benchmarks={{ fastMs: 100, healMs: null, healCost: null }} workflowId="record-update" />);
+    expect(screen.getByText("140×")).toBeInTheDocument();
+    expect(screen.getByText(/about 14 s and 0.6 of a cent/)).toBeInTheDocument();
     rerender(<BenchmarkSummary benchmarks={EMPTY_BENCHMARKS} />);
     expect(screen.getAllByText("n/a").length).toBeGreaterThan(1);
   });

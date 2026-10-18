@@ -129,7 +129,7 @@ export default function App() {
 
             {!creating && (
               <>
-                <ScrollReveal><BenchmarkSummary benchmarks={benchmarks} sample={sample} /></ScrollReveal>
+                <ScrollReveal><BenchmarkSummary benchmarks={benchmarks} sample={sample} workflowId={workflow.id} /></ScrollReveal>
                 <ScrollReveal>
                   <VisualDiffViewer
                     phase={phase} result={result} history={history} workflowId={workflow.id}

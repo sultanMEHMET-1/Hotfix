@@ -5,15 +5,26 @@ export interface BenchmarkSummaryProps {
   benchmarks: Benchmarks;
   /** True while the figures are fixture baselines rather than a real run, so they are never passed off as measured. */
   sample?: boolean;
+  /** Which workflow the figures are for, so the benchmark fallback matches it. */
+  workflowId?: string;
 }
 
-/** What an agent doing the task costs per run, from our model benchmark (about 11 s, half a cent). Used only until a real agent run exists. */
-const AGENT_EVERY_RUN_MS = 11000;
+/** What an agent doing each workflow's task costs per run, from our own trials (permit and inventory: the model and paired benchmarks; public sites: the live repair and creation runs). Used only until a real agent run exists. */
+const AGENT_BASELINE: Record<string, { ms: number; cost: string }> = {
+  "permit-application": { ms: 11000, cost: "half a cent" },
+  "record-update": { ms: 14000, cost: "0.6 of a cent" },
+  "wikipedia-article": { ms: 15000, cost: "under a cent" },
+  "python-latest-release": { ms: 15000, cost: "under a cent" },
+  "books-travel-first-book": { ms: 10000, cost: "0.4 of a cent" },
+  "quotes-love-first-quote": { ms: 10000, cost: "0.4 of a cent" },
+};
+const DEFAULT_BASELINE = { ms: 11000, cost: "half a cent" };
 
-export default function BenchmarkSummary({ benchmarks, sample = false }: BenchmarkSummaryProps) {
+export default function BenchmarkSummary({ benchmarks, sample = false, workflowId }: BenchmarkSummaryProps) {
+  const baseline = (workflowId && AGENT_BASELINE[workflowId]) || DEFAULT_BASELINE;
   const { fastMs, healMs } = benchmarks;
   // The agent side is a real run of this workflow in this session when there is one, else the benchmark figure.
-  const agentMs = healMs ?? AGENT_EVERY_RUN_MS;
+  const agentMs = healMs ?? baseline.ms;
   const ratio = fastMs !== null && fastMs > 0 ? agentMs / fastMs : null;
   // Both bars share one scale, so the picture is the same as the numbers: the agent run is the long one.
   const scale = Math.max(fastMs ?? 0, healMs ?? 0);
@@ -30,7 +41,7 @@ export default function BenchmarkSummary({ benchmarks, sample = false }: Benchma
           <span className="mt-3 text-sm text-ink-muted">{ratio !== null ? "faster than an agent on every run" : "Run it once to compare"}</span>
           {ratio !== null && (
             <span className="mt-1 text-sm text-ink-muted">
-              {healMs !== null ? "Against the agent run you just measured." : "Agent every run: about 11 s and half a cent, from our benchmark."}
+              {healMs !== null ? "Against the agent run you just measured." : `Agent every run on this workflow: about ${Math.round(baseline.ms / 1000)} s and ${baseline.cost}, from our own trials.`}
             </span>
           )}
         </div>
