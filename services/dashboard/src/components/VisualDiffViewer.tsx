@@ -11,7 +11,8 @@ export interface VisualDiffViewerProps {
 
 export default function VisualDiffViewer({ phase, result }: VisualDiffViewerProps) {
   const healing = phase === "running-healing";
-  const records = healing ? [] : (result?.heal_records ?? []);
+  const failedRequest = phase === "error";
+  const records = healing || failedRequest ? [] : (result?.heal_records ?? []);
 
   return (
     <Reveal className="mt-4">
@@ -32,7 +33,9 @@ export default function VisualDiffViewer({ phase, result }: VisualDiffViewerProp
         ) : records.length === 0 ? (
           <div className="mt-4 flex h-20 items-center">
             <span className="text-sm text-ink-muted">
-              {result === null
+              {failedRequest
+                ? "The request did not complete. See the message above."
+                : result === null
                 ? "No runs yet"
                 : result.error?.code === "rollback_failed"
                   ? "Rollback failed. Restore the selectors before running again."

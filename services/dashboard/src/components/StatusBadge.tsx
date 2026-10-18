@@ -6,7 +6,8 @@ export type BadgeState = "idle" | "fast" | "healing" | "healed" | "failed";
 export function badgeState(phase: RunPhase, result: WorkflowExecutionResponse | null): BadgeState {
   if (phase === "running-fast") return "fast";
   if (phase === "running-healing") return "healing";
-  if (phase === "idle" || phase === "error" || result === null) return "idle";
+  if (phase === "error") return "failed";
+  if (phase === "idle" || result === null) return "idle";
   if (result.status === "failed") return "failed";
   if (result.status === "healed") return "healed";
   return "fast";

@@ -23,8 +23,9 @@ export interface ControlRowProps {
 export default function ControlRow({ phase, result, scenario, onScenarioChange, onTrigger, mocksOn }: ControlRowProps) {
   const running = phase === "running-fast" || phase === "running-healing";
   const state = badgeState(phase, result);
+  // While a run is in flight the previous result no longer describes it, so only the live label shows.
   const showPathLabel =
-    state === "healing" || (result !== null && (state === "healed" || state === "failed" || state === "fast"));
+    state === "healing" || (!running && result !== null && (state === "healed" || state === "failed" || state === "fast"));
 
   return (
     <div className="mt-5 flex flex-col gap-4 pb-5 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between">
@@ -38,7 +39,7 @@ export default function ControlRow({ phase, result, scenario, onScenarioChange, 
           {running ? "Running" : "Trigger workflow"}
         </button>
 
-        <StatusBadge state={state} label={state === "failed" ? failedCopy(result) : undefined} />
+        <StatusBadge state={state} label={phase === "error" ? "Request failed" : state === "failed" ? failedCopy(result) : undefined} />
 
         {showPathLabel && (
           <span className="text-xs text-ink-muted">{state === "healing" ? "Browser Use agent" : executionPathLabel(result!)}</span>

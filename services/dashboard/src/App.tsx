@@ -13,7 +13,7 @@ import VisualDiffViewer from "./components/VisualDiffViewer";
 import RunLog from "./components/RunLog";
 
 export default function App() {
-  const { phase, result, benchmarks, history, trigger } = useWorkflowRun();
+  const { phase, result, error, benchmarks, history, trigger } = useWorkflowRun();
   const [scenario, setScenario] = useState<MockScenario>("fast");
   const [mocksOn, setMocksOn] = useState(USE_MOCKS);
   const [theme, toggleTheme] = useTheme();
@@ -40,7 +40,10 @@ export default function App() {
           mocksOn={mocksOn}
         />
 
-        {result?.status === "failed" && result.error && <ErrorBanner error={result.error} />}
+        {phase === "error" && error && <ErrorBanner error={{ code: "request_failed", message: error.message }} />}
+        {phase === "done" && result?.status === "failed" && result.error && (
+          <ErrorBanner error={result.error} />
+        )}
 
         <div className="mt-4">
           <BenchmarkSummary benchmarks={benchmarks} />

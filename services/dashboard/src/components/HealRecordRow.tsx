@@ -14,9 +14,12 @@ const OUTCOME_BADGE: Record<HealRecord["verification_outcome"], string> = {
 
 export default function HealRecordRow({ record }: { record: HealRecord }) {
   const applied = record.verification_outcome === "committed";
-  const versionLabel = applied
-    ? `v${record.version_before} → v${record.version_after ?? record.version_before}`
-    : `v${record.version_before}, restored to v${record.rollback_version ?? record.version_before}`;
+  const versionLabel =
+    record.verification_outcome === "committed"
+      ? `v${record.version_before} → v${record.version_after ?? record.version_before}`
+      : record.verification_outcome === "rolled_back"
+        ? `v${record.version_before}, restored to v${record.rollback_version ?? record.version_before}`
+        : `v${record.version_before}, never installed`;
 
   return (
     <div className="flex flex-col gap-3 border-t border-line py-5 first:border-t-0">

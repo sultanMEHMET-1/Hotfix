@@ -56,13 +56,13 @@ export async function runWorkflow(opts: RunWorkflowOptions = {}): Promise<Workfl
  * Restore the committed selectors on the backend (a rehearsal reset). The backend refuses
  * with 409 while a recovery is running, and only answers loopback callers.
  */
-export async function resetDemo(): Promise<{ version: number }> {
+export async function resetDemo(): Promise<{ version: number; blocked: string | null }> {
   const res = await fetch(`${API_BASE}${RESET_PATH}`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: "{}",
   });
-  let body: { version?: unknown; detail?: unknown } = {};
+  let body: { version?: unknown; detail?: unknown; blocked?: unknown } = {};
   try {
     body = await res.json();
   } catch {
@@ -72,5 +72,5 @@ export async function resetDemo(): Promise<{ version: number }> {
     throw new Error(typeof body.detail === "string" ? body.detail : `Reset failed (HTTP ${res.status})`);
   }
   if (typeof body.version !== "number") throw new Error("Reset returned an unexpected response");
-  return { version: body.version };
+  return { version: body.version, blocked: typeof body.blocked === "string" ? body.blocked : null };
 }

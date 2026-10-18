@@ -10,8 +10,11 @@ export default function ResetButton({ disabled }: { disabled: boolean }) {
     setPending(true);
     setNote(null);
     try {
-      const { version } = await resetDemo();
-      setNote({ text: `Selectors reset (v${version})`, ok: true });
+      const { version, blocked } = await resetDemo();
+      // The file is restored, but a backend that blocked itself (for example after a failed rollback) stays blocked.
+      setNote(blocked
+        ? { text: `Selectors restored (v${version}), but the backend is blocked: ${blocked}`, ok: false }
+        : { text: `Selectors reset (v${version})`, ok: true });
     } catch (e) {
       setNote({ text: e instanceof Error ? e.message : String(e), ok: false });
     } finally {
