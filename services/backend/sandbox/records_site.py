@@ -3,7 +3,8 @@
 
 Public sites cannot be modified, so write workflows are exercised here. State is in
 memory. Chaos Mode breaks the save button the same way the permit portal breaks its
-submit button. GET /state shows the stored records and how many writes happened, so a
+submit button. With hard=true it also adds decoys (a search box, "Save draft" and "Clear form"
+buttons) that a weak agent could use by mistake. GET /state shows the stored records and how many writes happened, so a
 test can prove repeated replays leave the same result. POST /reset clears everything.
 """
 
@@ -14,7 +15,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlsplit
 
 LOCK = threading.Lock()
-STATE = {"records": {}, "writes": 0, "chaos": False}
+STATE = {"records": {}, "writes": 0, "chaos": False, "hard": False}
 
 PAGE = """<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><title>Record Editor</title>
@@ -28,12 +29,12 @@ input { display: block; width: 100%; box-sizing: border-box; padding: 8px; font-
 #chaos-modal { margin-top: 16px; padding: 10px; border: 2px solid #8b1e1e; background: #fff1f1; }
 #result { margin-top: 18px; padding: 12px; background: #e8f5e9; } #result[hidden] { display: none; }
 </style></head><body>
-<nav><strong>RECORD EDITOR</strong><button id="chaos-toggle" type="button">Chaos Mode: OFF</button></nav>
+<nav><strong>RECORD EDITOR</strong>__SEARCH__<button id="chaos-toggle" type="button">Chaos Mode: OFF</button></nav>
 <main><h1>Edit a record</h1>
 <form id="record-form">
 <label for="record-id">Record ID</label><input id="record-id" name="record_id" autocomplete="off" required>
 <label for="record-value">New value</label><input id="record-value" name="value" autocomplete="off" required>
-<button id="save-btn" class="btn-primary" type="submit">Save record</button>
+__DECOYS__<button id="save-btn" class="btn-primary" type="submit">Save record</button>
 <div id="result" hidden aria-live="polite"><span data-testid="saved-value" data-record="" data-value=""></span></div>
 </form></main>
 <script>
@@ -75,6 +76,16 @@ input { display: block; width: 100%; box-sizing: border-box; padding: 8px; font-
 </script></body></html>"""
 
 
+SEARCH = '<input aria-label="Search records" placeholder="Search records" style="width:220px">'
+DECOYS = ('<button type="button" data-action="draft" style="margin-top:18px;margin-right:8px">Save draft</button>'
+          '<button type="button" id="clear-btn" style="margin-top:18px;margin-right:8px">Clear form</button>')
+
+
+def render():
+    page = PAGE.replace("__CHAOS__", "true" if STATE["chaos"] else "false")
+    return page.replace("__SEARCH__", SEARCH if STATE["hard"] else "").replace("__DECOYS__", DECOYS if STATE["hard"] else "")
+
+
 class Handler(BaseHTTPRequestHandler):
     def reply(self, code, body, kind="application/json"):
         payload = body.encode() if isinstance(body, str) else json.dumps(body).encode()
@@ -93,7 +104,7 @@ class Handler(BaseHTTPRequestHandler):
         path = urlsplit(self.path).path
         with LOCK:
             if path in {"/", "/records"}:
-                return self.reply(200, PAGE.replace("__CHAOS__", "true" if STATE["chaos"] else "false"), "text/html")
+                return self.reply(200, render(), "text/html")
             if path == "/state":
                 return self.reply(200, STATE)
         self.reply(200 if path == "/healthz" else 404, {"status": "ok"} if path == "/healthz" else {"error": "not found"})
@@ -110,9 +121,10 @@ class Handler(BaseHTTPRequestHandler):
                     return self.reply(200, {"record_id": record_id, "value": value})
                 if path == "/chaos":
                     STATE["chaos"] = bool(data["enabled"])
-                    return self.reply(200, {"enabled": STATE["chaos"]})
+                    STATE["hard"] = bool(data.get("hard", False))
+                    return self.reply(200, {"enabled": STATE["chaos"], "hard": STATE["hard"]})
                 if path == "/reset":
-                    STATE.update(records={}, writes=0, chaos=False)
+                    STATE.update(records={}, writes=0, chaos=False, hard=False)
                     return self.reply(200, {"status": "reset"})
         except (KeyError, ValueError, TypeError):
             return self.reply(400, {"error": "bad request"})

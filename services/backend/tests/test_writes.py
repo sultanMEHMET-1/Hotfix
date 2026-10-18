@@ -152,6 +152,24 @@ class SandboxSiteTests(unittest.TestCase):
         self.assertEqual(state["records"], {"rec-1": "hello", "canary-record": "canary-value"})
         self.assertEqual(state["writes"], 2)
 
+    def test_hard_mode_adds_decoys_without_breaking_the_deterministic_heal(self):
+        self.post("/chaos", {"enabled": True, "hard": True})
+        page = urlopen(f"{self.site}/records", timeout=3).read().decode()
+        for decoy in ("Save draft", "Clear form", "Search records"):
+            self.assertIn(decoy, page)
+        evidence = HealEvidence(action_type="click", history_step=0, action_index=0, node_name="BUTTON",
+                                attributes={"data-action": "save"}, reasoning="Mocked unique executed click")
+
+        async def diagnose(settings, workflow, params, failure, **kwargs):
+            return Candidate(SAVE, evidence, metrics={"cost_usd": 0.001, "total_tokens": 1})
+        self.client.app.state.diagnose = diagnose
+        payload = self.request()
+        self.assertEqual(payload["status"], "healed", payload)
+        self.assertEqual(self.state()["records"]["rec-1"], "hello")
+        self.assertTrue(self.state()["hard"])
+        self.post("/reset", {})
+        self.assertFalse(self.state()["hard"])
+
     @unittest.skipUnless(os.getenv("MENDER_LIVE_TEST") == "1", "Set MENDER_LIVE_TEST=1 for paid Gemini calls")
     def test_gemini_heals_the_save_button_on_the_sandbox(self):
         from dotenv import load_dotenv
