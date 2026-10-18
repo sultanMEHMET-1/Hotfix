@@ -68,10 +68,10 @@ describe("WorkflowPicker", () => {
     expect(container).toBeEmptyDOMElement();
     rerender(<WorkflowPicker workflows={[permit, record]} selected="permit-application" onSelect={onSelect} disabled={false} />);
     expect(screen.getByText("writes")).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: /record-update/ }));
+    fireEvent.click(screen.getByRole("button", { name: /Inventory desk/ }));
     expect(onSelect).toHaveBeenCalledWith("record-update");
     rerender(<WorkflowPicker workflows={[permit, record]} selected="permit-application" onSelect={onSelect} disabled />);
-    expect(screen.getByRole("button", { name: /record-update/ })).toBeDisabled();
+    expect(screen.getByRole("button", { name: /Inventory desk/ })).toBeDisabled();
   });
 });
 
@@ -88,9 +88,9 @@ describe("App with several workflows (mock mode)", () => {
     await act(async () => {
       await vi.advanceTimersByTimeAsync(0);
     });
-    expect(screen.getByRole("button", { name: /record-update/ })).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: /record-update/ }));
-    expect(screen.getAllByText("record-update").length).toBeGreaterThan(0);
+    expect(screen.getByRole("button", { name: /Inventory desk/ })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: /Inventory desk/ }));
+    expect(screen.getAllByText("Inventory desk").length).toBeGreaterThan(1);
   });
 });
 

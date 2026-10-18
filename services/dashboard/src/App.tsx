@@ -4,6 +4,7 @@ import { DEFAULT_WORKFLOW, listWorkflows } from "./api/client";
 import type { MockScenario } from "./api/mocks";
 import { useWorkflowRun } from "./hooks/useWorkflowRun";
 import { useTheme } from "./hooks/useTheme";
+import { workflowLabel } from "./lib/workflowLabel";
 import { USE_MOCKS, setUseMocks } from "./config";
 import Header from "./components/Header";
 import ControlRow from "./components/ControlRow";
@@ -53,7 +54,7 @@ export default function App() {
         <main id="main">
           <div className="mt-10">
             <h1 className="break-words text-[clamp(2rem,5vw,3.25rem)] leading-[1.05] tracking-tight">
-              <span className="text-ink-muted">Selected:</span> <span>{workflow.id}</span>
+              <span className="text-ink-muted">Selected:</span> <span>{workflowLabel(workflow.id)}</span>
             </h1>
             <p className="mt-2 max-w-[62ch] text-base text-ink-muted">{workflow.goal}</p>
           </div>

@@ -79,3 +79,13 @@ describe("failedCopy", () => {
     expect(text).toMatch(/Rollback failed/);
   });
 });
+
+import { workflowLabel } from "../lib/workflowLabel";
+
+describe("workflowLabel", () => {
+  it("names the demo sites, and spaces out any other id", () => {
+    expect(workflowLabel("permit-application")).toBe("Permit portal");
+    expect(workflowLabel("record-update")).toBe("Inventory desk");
+    expect(workflowLabel("new-site-check")).toBe("New site check");
+  });
+});
