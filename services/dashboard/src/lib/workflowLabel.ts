@@ -10,3 +10,13 @@ export function workflowLabel(id: string): string {
   const spaced = id.replace(/-/g, " ");
   return spaced.charAt(0).toUpperCase() + spaced.slice(1);
 }
+
+const SITE_HINTS: Record<string, string> = {
+  "permit-application": "Looks up a permit",
+  "record-update": "Edits a price on the site",
+};
+
+/** A few words on what running this workflow does. Unknown ids have none, so they get no tooltip. */
+export function workflowHint(id: string): string | undefined {
+  return SITE_HINTS[id];
+}

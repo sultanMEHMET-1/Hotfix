@@ -22,7 +22,7 @@ export function failedCopy(result: WorkflowExecutionResponse | null): string {
 }
 
 const COPY: Record<BadgeState, string> = {
-  idle: "Idle",
+  idle: "",
   fast: "Fast path, cached selector",
   healing: "Agent is re-indexing the page",
   healed: "Healed, selector patched",
@@ -39,6 +39,7 @@ const TEXT: Record<BadgeState, string> = {
 
 export default function StatusBadge({ state, label }: { state: BadgeState; label?: string }) {
   return (
+    // Empty while idle: nothing to announce yet, but the live region is already there for the first result.
     <div role="status" className={`font-display text-lg leading-tight ${TEXT[state]} ${state === "healing" ? "motion-safe:animate-pulse" : ""}`}>
       {label ?? COPY[state]}
     </div>

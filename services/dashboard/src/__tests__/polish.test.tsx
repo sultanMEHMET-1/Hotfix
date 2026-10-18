@@ -27,6 +27,23 @@ describe("Tooltip", () => {
   });
 });
 
+describe("workflow tooltips", () => {
+  beforeEach(() => vi.useFakeTimers());
+  afterEach(() => { cleanup(); vi.useRealTimers(); setUseMocks(true); });
+
+  it("say in a few words what each demo site does", async () => {
+    render(<App />);
+    await act(async () => { await vi.advanceTimersByTimeAsync(10); });  // the mock workflow list arrives asynchronously
+    fireEvent.focus(screen.getByRole("button", { name: /Permit portal/ }));
+    act(() => { vi.advanceTimersByTime(1); });
+    expect(screen.getByRole("tooltip")).toHaveTextContent("Looks up a permit");
+    fireEvent.blur(screen.getByRole("button", { name: /Permit portal/ }));
+    fireEvent.focus(screen.getByRole("button", { name: /Inventory desk/ }));
+    act(() => { vi.advanceTimersByTime(1); });
+    expect(screen.getByText("Edits a price on the site")).toHaveAttribute("role", "tooltip");
+  });
+});
+
 describe("the page chrome", () => {
   afterEach(() => { cleanup(); setUseMocks(true); });
 

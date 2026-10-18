@@ -17,7 +17,8 @@ describe("App", () => {
 
   it("renders idle state with baseline benchmarks", () => {
     render(<App />);
-    expect(screen.getByText("Idle")).toBeInTheDocument();
+    expect(screen.queryByText("Idle")).toBeNull();
+    expect(screen.getAllByRole("status")[0]).toBeEmptyDOMElement();
     expect(screen.getByText("Trigger workflow")).toBeInTheDocument();
     expect(screen.getAllByText("No runs yet").length).toBeGreaterThan(0);
   });
