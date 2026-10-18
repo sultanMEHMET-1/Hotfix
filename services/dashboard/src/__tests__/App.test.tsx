@@ -4,14 +4,6 @@ import "@testing-library/jest-dom/vitest";
 import App from "../App";
 import { HEAL_DELAY_MS, FAST_DELAY_MS } from "../api/mocks";
 import { setUseMocks } from "../config";
-import { FADE_MS } from "../hooks/useFadeSwitch";
-
-async function switchTab(label: string) {
-  fireEvent.click(screen.getByRole("button", { name: label }));
-  await act(async () => {
-    await vi.advanceTimersByTimeAsync(FADE_MS);
-  });
-}
 
 describe("App", () => {
   beforeEach(() => {
@@ -38,7 +30,6 @@ describe("App", () => {
     });
     expect(screen.getByText("Fast path, cached selector")).toBeInTheDocument();
 
-    await switchTab("Run log");
     expect(screen.getByText("success")).toBeInTheDocument();
   });
 
@@ -75,7 +66,6 @@ describe("App", () => {
     expect(screen.getByText(/Canary output did not match/)).toBeInTheDocument();
     expect(screen.getAllByText("Rolled back")).toHaveLength(2);
 
-    await switchTab("Run log");
     expect(screen.getByText("Unknown")).toBeInTheDocument();
   });
 
@@ -87,7 +77,7 @@ describe("App", () => {
       await vi.advanceTimersByTimeAsync(HEAL_DELAY_MS);
     });
     expect(screen.getAllByText("healed").length).toBeGreaterThan(0);
-    expect(screen.getByText("~34× slower")).toBeInTheDocument();
+    expect(screen.getByText("34×")).toBeInTheDocument();
   });
 
   it("toggles mocks off and hides the scenario picker, then restores it", () => {

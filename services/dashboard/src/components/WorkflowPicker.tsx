@@ -7,11 +7,11 @@ export interface WorkflowPickerProps {
   disabled: boolean;
 }
 
-/** Choose which site's workflow to run. Only shown when the backend offers more than one. */
+/** Choose which site's workflow to run: ruled tabs, the chosen one sits on the rule. Only shown when there is a choice. */
 export default function WorkflowPicker({ workflows, selected, onSelect, disabled }: WorkflowPickerProps) {
   if (workflows.length < 2) return null;
   return (
-    <div className="flex items-center gap-1 rounded-lg border border-line bg-surface p-1" role="group" aria-label="Workflow">
+    <div className="flex flex-wrap gap-x-6 border-b-[1.5px] border-line" role="group" aria-label="Workflow">
       {workflows.map((w) => (
         <button
           key={w.id}
@@ -20,12 +20,12 @@ export default function WorkflowPicker({ workflows, selected, onSelect, disabled
           onClick={() => onSelect(w.id)}
           aria-pressed={selected === w.id}
           title={w.goal}
-          className={`rounded-md px-3 py-1.5 text-sm transition-colors disabled:cursor-not-allowed disabled:opacity-40 ${
-            selected === w.id ? "bg-surface-subtle font-medium text-ink" : "text-ink-muted hover:text-ink"
+          className={`-mb-[1.5px] min-h-[44px] border-b-[3px] px-1 font-mono text-sm transition-colors disabled:cursor-not-allowed disabled:opacity-50 ${
+            selected === w.id ? "border-ink font-semibold text-ink" : "border-transparent text-ink-muted hover:text-ink"
           }`}
         >
           {w.id}
-          {w.mutates && <span className="ml-1.5 rounded-sm bg-warning-bg px-1 py-0.5 text-[10px] font-semibold text-warning">writes</span>}
+          {w.mutates && <span className="ml-2 rounded-panel border border-warning px-1.5 py-0.5 text-xs font-medium text-warning">writes</span>}
         </button>
       ))}
     </div>

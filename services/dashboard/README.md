@@ -2,14 +2,14 @@
 
 Owner: Person 3. A React + Vite + Tailwind single-page app that runs a workflow through the Mender backend and shows how it was served: the deterministic fast path, or a repair by the Browser Use agent (with the old and new selectors, the version history, the cost, and a Sentry trace link). It consumes `WorkflowExecutionResponse` and `WorkflowSummary` from `contracts/api_types.ts` (imported read-only through the `@contracts` alias).
 
-## Design workflow
-Paper is the design source of truth. See `design/PAPER_PROMPT.md`: the design is created in Paper (local session with the Paper MCP), exported to `design/`, and the components are built from those exports.
+## Design
+The look is a printed lab ledger: vellum paper, hard ink rules, and a rule that an applied result is printed while one that was not applied is only drawn. The built system is described in `design/DESIGN.md`; `design/DIRECTION.md` has the original notebook idea and `design/PAPER_PROMPT.md` the first brief. The Paper exports are the earlier direction, kept as history.
 
 ## Run
 ```bash
 npm ci
 npm run dev        # http://127.0.0.1:5173 (bound to localhost on purpose, see below)
-npm run typecheck && npm test   # 55 tests, independent of any .env.local
+npm run typecheck && npm test   # 58 tests, independent of any .env.local
 npm run build
 ```
 

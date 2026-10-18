@@ -1,4 +1,4 @@
-import { act, cleanup, fireEvent, render, renderHook, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import "@testing-library/jest-dom/vitest";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import App from "../App";
@@ -6,7 +6,6 @@ import { FAST_DELAY_MS, HEAL_DELAY_MS } from "../api/mocks";
 import { setUseMocks } from "../config";
 import HealRecordRow from "../components/HealRecordRow";
 import ResetButton from "../components/ResetButton";
-import { FADE_MS, useFadeSwitch } from "../hooks/useFadeSwitch";
 
 describe("a request error is visible", () => {
   beforeEach(() => {
@@ -60,21 +59,6 @@ describe("the previous result does not describe the next run", () => {
       await vi.advanceTimersByTimeAsync(FAST_DELAY_MS);
     });
     expect(screen.getByText("Deterministic Playwright")).toBeInTheDocument();
-  });
-});
-
-describe("useFadeSwitch", () => {
-  beforeEach(() => vi.useFakeTimers());
-  afterEach(() => vi.useRealTimers());
-
-  it("is visible again after switching away and back inside the fade window", () => {
-    const { result, rerender } = renderHook(({ tab }) => useFadeSwitch(tab), { initialProps: { tab: "overview" } });
-    rerender({ tab: "log" });
-    act(() => vi.advanceTimersByTime(FADE_MS / 4));
-    expect(result.current.visible).toBe(false);
-    rerender({ tab: "overview" });
-    act(() => vi.advanceTimersByTime(FADE_MS * 2));
-    expect(result.current).toEqual({ display: "overview", visible: true });
   });
 });
 

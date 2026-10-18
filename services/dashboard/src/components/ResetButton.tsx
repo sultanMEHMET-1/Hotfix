@@ -23,18 +23,18 @@ export default function ResetButton({ disabled, workflow }: { disabled: boolean;
   };
 
   return (
-    <div className="flex items-center gap-3">
+    <div className="flex flex-wrap items-center gap-3">
       <button
         type="button"
         onClick={reset}
         disabled={disabled || pending}
         title="Restore the original selectors on the backend"
-        className="rounded-md border border-line bg-surface px-3 py-1.5 text-xs font-medium text-ink-muted transition-colors hover:text-ink disabled:cursor-not-allowed disabled:opacity-40"
+        className="min-h-[44px] rounded-panel border-[1.5px] border-ink bg-surface px-4 font-display text-sm transition-colors hover:bg-surface-subtle disabled:cursor-not-allowed disabled:opacity-50"
       >
         {pending ? "Resetting" : "Reset selectors"}
       </button>
       {note && (
-        <span role="status" className={`text-xs ${note.ok ? "text-ink-muted" : "text-danger"}`}>
+        <span role="status" className={`text-sm ${note.ok ? "text-ink-muted" : "text-danger"}`}>
           {note.text}
         </span>
       )}

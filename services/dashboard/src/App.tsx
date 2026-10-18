@@ -4,9 +4,7 @@ import { DEFAULT_WORKFLOW, listWorkflows } from "./api/client";
 import type { MockScenario } from "./api/mocks";
 import { useWorkflowRun } from "./hooks/useWorkflowRun";
 import { useTheme } from "./hooks/useTheme";
-import { useFadeSwitch, FADE_MS } from "./hooks/useFadeSwitch";
 import { USE_MOCKS, setUseMocks } from "./config";
-import SectionTabs, { type TabId } from "./components/SectionTabs";
 import Header from "./components/Header";
 import ControlRow from "./components/ControlRow";
 import ErrorBanner from "./components/ErrorBanner";
@@ -35,8 +33,6 @@ export default function App() {
     return () => controller.abort();
   }, [mocksOn]);
   const [theme, toggleTheme] = useTheme();
-  const [tab, setTab] = useState<TabId>("overview");
-  const { display: displayedTab, visible: tabVisible } = useFadeSwitch(tab);
 
   const toggleMocks = () => {
     const next = !mocksOn;
@@ -44,40 +40,46 @@ export default function App() {
     setMocksOn(next);
   };
 
+  const sample = mocksOn && !history.some((h) => h.workflowId === workflow.id);
+
   return (
-    <div className="min-h-screen bg-surface-subtle">
-      <div className="mx-auto w-full max-w-[1120px] px-6 pb-16 sm:px-9">
-        <Header workflowId={workflow.id} mocksOn={mocksOn} onToggleMocks={toggleMocks} theme={theme} onToggleTheme={toggleTheme} />
+    <div className="min-h-screen">
+      <a href="#main" className="sr-only focus:not-sr-only focus:absolute focus:left-4 focus:top-4 focus:z-10 focus:bg-ink focus:px-4 focus:py-3 focus:text-ground">
+        Skip to the run
+      </a>
+      <div className="mx-auto w-full max-w-[1180px] px-5 pb-24 sm:px-9">
+        <Header theme={theme} onToggleTheme={toggleTheme} />
 
-        <ControlRow
-          phase={phase}
-          result={result}
-          scenario={scenario}
-          onScenarioChange={setScenario}
-          onTrigger={() => trigger({ scenario, workflow })}
-          mocksOn={mocksOn}
-          workflows={workflows}
-          workflowId={workflow.id}
-          onWorkflowChange={setWorkflowId}
-        />
+        <main id="main">
+          <div className="mt-10">
+            <h1 className="break-words font-mono text-[clamp(2rem,5.5vw,3.5rem)] font-medium leading-tight tracking-tight">{workflow.id}</h1>
+            <p className="mt-2 max-w-[62ch] text-base text-ink-muted">{workflow.goal}</p>
+          </div>
 
-        {phase === "error" && error && <ErrorBanner error={{ code: "request_failed", message: error.message }} />}
-        {phase === "done" && result?.status === "failed" && result.error && (
-          <ErrorBanner key={result.trace_id} error={result.error} cooldownRemainingS={result.cooldown_remaining_s} />
-        )}
+          <div className="mt-8">
+            <ControlRow
+              phase={phase}
+              result={result}
+              scenario={scenario}
+              onScenarioChange={setScenario}
+              onTrigger={() => trigger({ scenario, workflow })}
+              mocksOn={mocksOn}
+              onToggleMocks={toggleMocks}
+              workflows={workflows}
+              workflowId={workflow.id}
+              onWorkflowChange={setWorkflowId}
+            />
+          </div>
 
-        <div className="mt-4">
-          <BenchmarkSummary benchmarks={benchmarks} />
-        </div>
+          {phase === "error" && error && <ErrorBanner error={{ code: "request_failed", message: error.message }} />}
+          {phase === "done" && result?.status === "failed" && result.error && (
+            <ErrorBanner key={result.trace_id} error={result.error} cooldownRemainingS={result.cooldown_remaining_s} />
+          )}
 
-        <SectionTabs active={tab} onSelect={setTab} />
-
-        <div
-          className="mt-4 transition-opacity ease-out"
-          style={{ transitionDuration: `${FADE_MS}ms`, opacity: tabVisible ? 1 : 0 }}
-        >
-          {displayedTab === "overview" ? <VisualDiffViewer phase={phase} result={result} /> : <RunLog history={history} />}
-        </div>
+          <BenchmarkSummary benchmarks={benchmarks} sample={sample} />
+          <VisualDiffViewer phase={phase} result={result} />
+          <RunLog history={history} />
+        </main>
       </div>
     </div>
   );

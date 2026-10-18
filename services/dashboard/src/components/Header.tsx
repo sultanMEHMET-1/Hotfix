@@ -1,47 +1,25 @@
 import type { Theme } from "../hooks/useTheme";
 
 export interface HeaderProps {
-  workflowId: string;
-  mocksOn: boolean;
-  onToggleMocks: () => void;
   theme: Theme;
   onToggleTheme: () => void;
 }
 
-export default function Header({ workflowId, mocksOn, onToggleMocks, theme, onToggleTheme }: HeaderProps) {
+/** The running head of the page: the product name over a double rule, like a bound notebook. */
+export default function Header({ theme, onToggleTheme }: HeaderProps) {
   const isDark = theme === "dark";
   return (
-    <header className="flex flex-wrap items-start justify-between gap-3 pt-6">
-      <div className="animate-fade-up">
-        <div className="text-xs tracking-wide text-ink-faint">
-          Mender&nbsp;&nbsp;/&nbsp;&nbsp;<span className="font-mono">{workflowId}</span>&nbsp;&nbsp;/
-        </div>
-        <h1 className="mt-1 text-xl font-semibold tracking-tight text-ink sm:text-2xl">Workflow overview</h1>
-      </div>
-      <div className="mt-1 flex items-center gap-2">
-        <button
-          type="button"
-          onClick={onToggleTheme}
-          aria-pressed={isDark}
-          title="Switch between light and dark"
-          className={`rounded-md border px-3 py-1.5 text-xs font-medium transition-colors ${
-            isDark ? "border-accent bg-accent/10 text-accent" : "border-line bg-surface text-ink-muted hover:text-ink"
-          }`}
-        >
-          {isDark ? "Dark mode" : "Light mode"}
-        </button>
-        <button
-          type="button"
-          onClick={onToggleMocks}
-          aria-pressed={mocksOn}
-          title="Switch between mocked demo responses and the real backend"
-          className={`rounded-md border px-3 py-1.5 text-xs font-medium transition-colors ${
-            mocksOn ? "border-accent bg-accent/10 text-accent" : "border-line bg-surface text-ink-muted hover:text-ink"
-          }`}
-        >
-          Mocks {mocksOn ? "on" : "off"}
-        </button>
-      </div>
+    <header className="flex items-center justify-between gap-4 border-b-4 border-double border-ink pb-3 pt-6">
+      <span className="font-display text-xl tracking-tight">Mender</span>
+      <button
+        type="button"
+        onClick={onToggleTheme}
+        aria-pressed={isDark}
+        title="Switch between light and dark"
+        className="min-h-[44px] rounded-panel border-[1.5px] border-transparent px-3 text-sm text-ink-muted underline decoration-line decoration-2 underline-offset-4 hover:text-ink hover:decoration-ink"
+      >
+        {isDark ? "Use light paper" : "Use dark paper"}
+      </button>
     </header>
   );
 }

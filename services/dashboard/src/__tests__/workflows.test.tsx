@@ -7,6 +7,8 @@ import { listWorkflows, resetDemo, runWorkflow } from "../api/client";
 import WorkflowPicker from "../components/WorkflowPicker";
 import { setUseMocks } from "../config";
 import { computeBenchmarks, EMPTY_BENCHMARKS, type RunHistoryEntry } from "../hooks/useWorkflowRun";
+import BenchmarkSummary from "../components/BenchmarkSummary";
+import HealRecordRow from "../components/HealRecordRow";
 import { initSentry } from "../sentry";
 
 const permit: WorkflowSummary = { id: "permit-application", goal: "Look up a permit", mutates: false, default: true,
@@ -109,6 +111,35 @@ describe("benchmarks follow the selected workflow", () => {
     expect(computeBenchmarks(history, EMPTY_BENCHMARKS, "permit-application")).toMatchObject({ fastMs: 300, healMs: null });
     expect(computeBenchmarks(history, EMPTY_BENCHMARKS, "record-update")).toMatchObject({ fastMs: null, healMs: 16000 });
     expect(computeBenchmarks(history, EMPTY_BENCHMARKS)).toMatchObject({ fastMs: 300, healMs: 16000 });  // no filter given
+  });
+});
+
+describe("the redesigned result views", () => {
+  const rec = (outcome: "committed" | "rolled_back") => ({
+    field: "submit_button", diff: { old_selector: "#a", new_selector: "#b" }, verification_outcome: outcome,
+    version_before: 1, version_after: outcome === "committed" ? 2 : undefined, rollback_version: outcome === "rolled_back" ? 3 : undefined,
+    evidence: { action_type: "click", history_step: 0, action_index: 0, node_name: "BUTTON", attributes: {}, reasoning: "r" },
+  });
+
+  it("headlines the ratio, and says n/a before both paths have run", () => {
+    const { rerender } = render(<BenchmarkSummary benchmarks={{ fastMs: 100, healMs: 3000, fastCost: 0, healCost: 0.01 }} />);
+    expect(screen.getByText("30×")).toBeInTheDocument();
+    rerender(<BenchmarkSummary benchmarks={EMPTY_BENCHMARKS} />);
+    expect(screen.getAllByText("n/a").length).toBeGreaterThan(1);
+  });
+
+  it("labels fixture figures as samples", () => {
+    render(<BenchmarkSummary benchmarks={{ fastMs: 100, healMs: 3000, fastCost: 0, healCost: 0.01 }} sample />);
+    expect(screen.getByText(/Sample figures from fixtures/)).toBeInTheDocument();
+  });
+
+  it("draws an applied correction printed and a rolled back one as not applied", () => {
+    const { container } = render(<ul><HealRecordRow record={rec("committed") as never} /><HealRecordRow record={rec("rolled_back") as never} /></ul>);
+    const rows = container.querySelectorAll("li");
+    expect(rows[0].className).toContain("printed");
+    expect(rows[1].className).not.toContain("printed");
+    expect(rows[1].className).toContain("border-dashed");
+    expect(screen.getByText(/Not applied/)).toBeInTheDocument();
   });
 });
 

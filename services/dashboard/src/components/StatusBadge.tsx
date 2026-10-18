@@ -29,12 +29,13 @@ const COPY: Record<BadgeState, string> = {
   failed: "Reverted after a failed recovery",
 };
 
-const DOT: Record<BadgeState, string> = {
-  idle: "bg-ink-faint",
-  fast: "bg-success",
-  healing: "bg-warning",
-  healed: "bg-success",
-  failed: "bg-danger",
+// A square ink marker, filled by meaning: green applied or fast, amber agent at work, oxblood failed.
+const MARK: Record<BadgeState, string> = {
+  idle: "border-ink-faint bg-transparent",
+  fast: "border-success bg-success",
+  healing: "border-warning bg-warning",
+  healed: "border-success bg-success",
+  failed: "border-danger bg-danger",
 };
 
 const TEXT: Record<BadgeState, string> = {
@@ -47,18 +48,9 @@ const TEXT: Record<BadgeState, string> = {
 
 export default function StatusBadge({ state, label }: { state: BadgeState; label?: string }) {
   return (
-    <div
-      className="inline-flex items-center gap-2 rounded-md border border-line bg-surface py-1 pl-1.5 pr-3 transition-colors"
-      role="status"
-    >
-      <span className="relative flex h-2 w-2">
-        {state === "healing" && <span className={`absolute inline-flex h-full w-full animate-ping rounded-full opacity-60 ${DOT[state]}`} />}
-        <span className={`relative inline-flex h-2 w-2 rounded-full ${DOT[state]}`} />
-      </span>
-      <span className={`text-sm font-medium ${TEXT[state]}`}>{label ?? COPY[state]}</span>
-      {state === "healed" && (
-        <span className="rounded-sm bg-warning-bg px-1.5 py-0.5 text-[10px] font-semibold text-warning">healed</span>
-      )}
+    <div className="flex items-center gap-3" role="status">
+      <span aria-hidden="true" className={`h-4 w-4 shrink-0 border-[1.5px] ${MARK[state]} ${state === "healing" ? "motion-safe:animate-pulse" : ""}`} />
+      <span className={`font-display text-lg leading-tight ${TEXT[state]}`}>{label ?? COPY[state]}</span>
     </div>
   );
 }
