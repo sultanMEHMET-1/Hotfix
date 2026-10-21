@@ -14,7 +14,7 @@ import sentry_sdk
 from sentry_sdk.integrations.logging import LoggingIntegration
 
 from contracts.api_types import RecoveryError, WorkflowExecutionResponse, WorkflowSummary
-from . import custom
+from . import build, custom
 from .config import BackendError, Settings, load_workflows, prune_runs, read_json, referenced_fields, validator, write_allowed
 from .recovery import Recovery
 from .reset import committed_selectors, restore_original
@@ -65,6 +65,7 @@ def create_app(settings=None):
         app.state.configuration_error = None
         app.state.drafts = custom.Drafts()
         app.state.author_busy = False
+        app.state.building = set()
         app.state.diagnose = None
         try:
             timeouts = (settings.runner_timeout, settings.agent_timeout, settings.recovery_timeout,
@@ -195,6 +196,7 @@ def create_app(settings=None):
             finally:
                 await lock.__aexit__(None, None, None)
             recovery.cooldown.pop(name, None)
+            build.clear(settings, name)
         log.info("Original selectors restored (%s); cooldown cleared", versions, extra={"phase": "ROLLBACK"})
         default = getattr(app.state, "default_workflow", None)
         return {"version": versions.get(default) or next(iter(versions.values()), None), "versions": versions,
@@ -302,6 +304,7 @@ def create_app(settings=None):
                 data = {}
                 records = []
                 cooldown_remaining = None
+                built_cost = built_ms = None
                 owner = False
                 outcome = None
                 recovery = app.state.recovery
@@ -335,6 +338,19 @@ def create_app(settings=None):
                             if result.data is not None:
                                 data = result.data
                             else:
+                                if request.workflow in build.BUILD_ON_FIRST_RUN and result.failure is not None and result.failure.failed_step in selectors["fields"] \
+                                        and request.params != workflow.canary.params:
+                                    # The known-good canary tells a broken selector from a bad input (a typo, a course that does
+                                    # not exist). The first needs an agent run; the second must never cost one.
+                                    probe_lock = store.lock()
+                                    async with asyncio.timeout(settings.lock_timeout):
+                                        await probe_lock.__aenter__()
+                                    try:
+                                        probe = await runner.execute(request.workflow, workflow.canary.params, output_validator)
+                                    finally:
+                                        await probe_lock.__aexit__(None, None, None)
+                                    if probe.data is not None:
+                                        raise BackendError("input_not_found", "The page works for a known input but returned nothing for these values. Check what you typed.")
                                 capture_failure(request.workflow, result)
                                 log.warning("%s", result.error, extra={"phase": "BROKEN"})
                                 if result.failure is None:
@@ -381,6 +397,19 @@ def create_app(settings=None):
                             if own.data is None:
                                 raise own.error
                             data = own.data
+                    if data and not attempted and not build.is_built(settings, request.workflow) \
+                            and request.workflow not in app.state.building:
+                        # First successful run of an unbuilt endpoint: a real agent confirms what the selectors read.
+                        app.state.building.add(request.workflow)
+                        try:
+                            with sentry_sdk.start_span(op="workflow.build", name="verified first run"):
+                                log.info("Building %s: agent verifies the first run", request.workflow, extra={"phase": "BUILD"})
+                                url = build.page_url(settings, store.read(), request.params)
+                                built_cost, built_ms = await build.verify(settings, workflow, url, data)
+                            build.mark_built(settings, request.workflow, params=request.params, cost_usd=built_cost, duration_ms=built_ms)
+                            attempted = True
+                        finally:
+                            app.state.building.discard(request.workflow)
                 except TimeoutError:
                     error = BackendError("lock_timeout", "Selector map busy; fast-path lock wait exceeded")
                 except BackendError as exc:
@@ -412,8 +441,8 @@ def create_app(settings=None):
                     error=RecoveryError(code=error.code, message=str(error)) if error else None,
                     heal_records=records,
                     # Measurements belong to the request that ran the agent, never waiters or cache hits.
-                    agent_cost_usd=outcome.agent_cost_usd if owner and outcome else None,
-                    agent_duration_ms=outcome.agent_duration_ms if owner and outcome else None,
+                    agent_cost_usd=built_cost if built_cost is not None else (outcome.agent_cost_usd if owner and outcome else None),
+                    agent_duration_ms=built_ms if built_ms is not None else (outcome.agent_duration_ms if owner and outcome else None),
                     cooldown_remaining_s=cooldown_remaining,
                 )
                 payload = response.model_dump(mode="json", exclude_none=True)

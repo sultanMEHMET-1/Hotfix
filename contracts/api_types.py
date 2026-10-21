@@ -124,7 +124,7 @@ class WorkflowDefinition(_StrictModel):
     """A workflow any runner can execute: ordered steps, then reads. Lives in contracts/workflows/<id>.json."""
 
     goal: str = Field(min_length=1)
-    steps: list[WorkflowStep] = Field(min_length=1)
+    steps: list[WorkflowStep]  # may be empty: a read whose target_url carries the query
     outputs: dict[str, WorkflowOutput] = Field(default_factory=dict)
     params_schema: dict[str, object]
     output_schema: dict[str, object]
@@ -135,6 +135,8 @@ class WorkflowDefinition(_StrictModel):
     @model_validator(mode="after")
     def _consistent(self):
         step_fields = [step.field for step in self.steps]
+        if not self.steps and not self.outputs:
+            raise ValueError("A workflow needs steps or outputs")
         if len(set(step_fields)) != len(step_fields):
             raise ValueError("Duplicate ordered workflow fields")
         for step in self.steps:

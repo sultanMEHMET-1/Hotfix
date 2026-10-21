@@ -13,10 +13,13 @@ from dataclasses import dataclass
 from pathlib import Path
 from time import perf_counter
 from typing import Any
-from urllib.parse import urlsplit
+from urllib.parse import quote_plus, urlsplit
 
 
 PER_STEP_TIMEOUT_MS = 2_000
+# Sites we do not run get longer to load: a slow page is not a broken selector, and a failed load is never repaired.
+REMOTE_NAVIGATION_TIMEOUT_MS = 7_000
+LOCAL_HOSTS = {"127.0.0.1", "localhost", "::1"}
 DOM_SNIPPET_LIMIT = 1_500
 DEFAULT_PERMIT_ID = "PERMIT-2026-0042"
 DEFAULT_APPLICANT_NAME = "Davis Municipal Works"
@@ -90,6 +93,29 @@ def load_selector_map(path: Path = DEFAULT_SELECTOR_PATH) -> dict[str, Any]:
     return selector_map
 
 
+URL_PLACEHOLDER = re.compile(r"\{(\w+)(:catalog)?\}")
+CATALOG_NUMBER = re.compile(r"(C?M?)(\d{1,4})([A-Z]{0,2})")
+
+
+def expand_url(template: str, params: dict[str, Any]) -> str:
+    """Fill {param} placeholders in a target_url, URL-encoded. {param:catalog} also zero-pads a course number
+    the way the UCLA registrar's deep links expect it: number, then a 2-letter suffix slot, then the C/M/CM prefix
+    ("35l" -> "0035L", "M51A" -> "0051A M", "C121" -> "0121  C")."""
+
+    def fill(match: re.Match) -> str:
+        if match[1] not in params:
+            raise RunnerConfigurationError(f"missing params ['{match[1]}']")
+        value = str(params[match[1]]).strip()
+        if match[2]:
+            parts = CATALOG_NUMBER.fullmatch(value.upper())
+            if not parts:
+                raise RunnerConfigurationError(f"{match[1]} {value!r} is not a course number like 32, 35L or M51A")
+            value = f"{parts[2].zfill(4)}{parts[3].ljust(2)}{parts[1]}".rstrip()
+        return quote_plus(value)
+
+    return URL_PLACEHOLDER.sub(fill, template)
+
+
 def _selector(fields: dict[str, str], name: str) -> str:
     try:
         return fields[name]
@@ -109,8 +135,8 @@ def load_definition(path: Path) -> dict[str, Any]:
 
     definition = _read_json(path)
     steps = definition.get("steps")
-    if not isinstance(steps, list) or not steps:
-        raise RunnerConfigurationError("Workflow needs a non-empty steps list")
+    if not isinstance(steps, list):  # may be empty: a read-only page whose target_url already carries the query
+        raise RunnerConfigurationError("Workflow needs a steps list")
     for step in steps:
         if not isinstance(step, dict) or not FIELD_NAME.fullmatch(str(step.get("field", ""))):
             raise RunnerConfigurationError(f"Invalid workflow step: {step!r}")
@@ -145,7 +171,8 @@ def execute_definition(
     timings = timings if timings is not None else {}
     fields = selector_map["fields"]
     page.set_default_timeout(PER_STEP_TIMEOUT_MS)
-    page.set_default_navigation_timeout(PER_STEP_TIMEOUT_MS)
+    page.set_default_navigation_timeout(
+        PER_STEP_TIMEOUT_MS if urlsplit(target_url).hostname in LOCAL_HOSTS else REMOTE_NAVIGATION_TIMEOUT_MS)
     mark = perf_counter()
     try:
         page.goto(target_url, wait_until="domcontentloaded")
@@ -257,7 +284,7 @@ def write_failure_artifacts(
     try:
         page_url = page.url
     except Exception:
-        page_url = selector_map["target_url"]
+        page_url = selector_map["target_url"]  # ponytail: may still hold {placeholders}; only used if page.url fails
     message = f"{type(failure.cause).__name__}: {failure.cause} (selector {failure.expected_selector})"
     if screenshot_error is not None:
         message += f"; screenshot capture failed: {screenshot_error}"
@@ -343,7 +370,11 @@ def main(argv: list[str] | None = None) -> int:
     artifacts_dir, screenshot_name = args.artifacts_dir, "failure_latest.png"
     if args.run_id:
         artifacts_dir, screenshot_name = Path("runs") / args.run_id, "failure.png"
-    target_url = args.target_url or selector_map["target_url"]
+    try:
+        target_url = expand_url(args.target_url or selector_map["target_url"], params)
+    except RunnerConfigurationError as error:
+        print(f"runner configuration error: {error}", file=sys.stderr)
+        return 2
     try:
         with sync_playwright() as playwright:
             process_started = perf_counter()
