@@ -1,0 +1,11 @@
+{
+  "workflow_id": "ucla-class-status",
+  "target_url": "https://sa.ucla.edu/ro/public/soc/Results?t={term}&sBy=subject&subj={subject}&catlg={course_number:catalog}&cls_no=&btnIsInIndex=btn_inIndex",
+  "version": 1,
+  "fields": {
+    "course_title": "#resultsTitle .class-title .head",
+    "class_status": "#resultsTitle .primary-row .statusColumn >> nth=0",
+    "class_waitlist": "#resultsTitle .primary-row .waitlistColumn >> nth=0",
+    "class_instructor": "#resultsTitle .primary-row .instructorColumn >> nth=0"
+  }
+}

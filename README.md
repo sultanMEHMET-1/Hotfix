@@ -1,6 +1,6 @@
-# Mender
+# Hotfix
 
-Mender turns a web portal that has no API into a fast JSON endpoint that repairs itself when the site
+Hotfix turns a web portal that has no API into a fast JSON endpoint that repairs itself when the site
 changes.
 
 A deterministic Playwright runner executes a workflow (steps and outputs from `contracts/workflows/`) with CSS
@@ -8,8 +8,8 @@ selectors from that workflow's map in `contracts/selectors/`. It takes about 0.4
 changes and a selector breaks, the backend runs a Browser Use agent (Gemini) on the changed page, derives a CSS
 selector for the broken field from the agent's recorded history, proves it by replaying the runner, and only then
 commits it. If the replay, the output schema, or a canary check fails, the original selectors are restored. Sentry
-traces the whole thing, including the agent. Six workflows ship: a permit lookup, a record editor that really
-changes a value, and four read-only workflows on real and practice sites (see "Public sites").
+traces the whole thing, including the agent. Seven workflows ship: a permit lookup, a record editor that really
+changes a value, and five read-only workflows on real and practice sites (see "Public sites").
 
 ```
                     POST /api/v1/run-workflow
@@ -69,9 +69,15 @@ everything still runs; Sentry is just off.
 
 ## Public sites
 
-Four read-only workflows run against real sites with no setup beyond the venv:
+Five read-only workflows run against real sites with no setup beyond the venv:
 
 - **Wikipedia**: type an article title, read its heading.
+- **UCLA Schedule of Classes**: give a subject, course number and term (`COM SCI`, `35L`, `26F`), read the course's
+  seat status, waitlist and instructor from the public registrar. The registrar refreshes seat status once an hour,
+  and the canary checks only the title. The endpoint starts unbuilt: the first run is checked by a real Browser Use
+  agent (about 5 to 10 s, under half a cent) that must read the same values as the selectors, then every later run is
+  the fast path. The agent verifies the selectors; it does not discover them. A typo returns `input_not_found` without
+  an agent run. **Reset selectors** (which needs the UCLA selector map committed to git) makes it unbuilt again.
 - **Python releases**: read the newest release on python.org.
 - **Books** and **Quotes**: two practice sites built to be read by programs, whose content never changes (the first
   Travel book's title and price on Books to Scrape, and the first quote under the love tag on Quotes to Scrape).
@@ -140,7 +146,7 @@ For the write demo, start the inventory site and open `http://127.0.0.1:3100/rec
 Rehearse it unattended: `python -m services.backend.rehearse 5` (API) or
 `services/backend/rehearse_ui.py` (through the dashboard in a real browser). Both spend about $0.03 per loop.
 
-## How Sentry shaped Mender
+## How Sentry shaped Hotfix
 
 The track asks for more than error monitoring, and we used it that way: five products, and each changed a decision.
 

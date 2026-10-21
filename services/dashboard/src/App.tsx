@@ -5,7 +5,7 @@ import { DEFAULT_WORKFLOW, deleteWorkflow, listWorkflows } from "./api/client";
 import type { MockScenario } from "./api/mocks";
 import { useWorkflowRun } from "./hooks/useWorkflowRun";
 import { useTheme } from "./hooks/useTheme";
-import { isCreated, paramLabel, publicSite, workflowTitle, type PublicSite } from "./lib/workflowLabel";
+import { hasTypedInput, isCreated, paramLabel, publicSite, workflowTitle, type PublicSite } from "./lib/workflowLabel";
 import { USE_MOCKS, setUseMocks } from "./config";
 import Header from "./components/Header";
 import ControlRow from "./components/ControlRow";
@@ -32,7 +32,7 @@ export default function App() {
   const [deleteError, setDeleteError] = useState<string | null>(null);
   const workflow = workflows.find((w) => w.id === workflowId) ?? workflows[0];
   const creating = mode === "create";
-  const inputs = mocksOn || workflow.mutates || !publicSite(workflow.id) ? [] : Object.entries(workflow.example_params)
+  const inputs = mocksOn || workflow.mutates || !hasTypedInput(workflow.id) ? [] : Object.entries(workflow.example_params)
     .filter((entry): entry is [string, string] => typeof entry[1] === "string")
     .map(([name, example]) => ({ name, label: paramLabel(workflow.id, name), example, value: typed[workflow.id]?.[name] ?? example }));
   const { phase, result, error, benchmarks, history, trigger } = useWorkflowRun(mocksOn, workflow.id);

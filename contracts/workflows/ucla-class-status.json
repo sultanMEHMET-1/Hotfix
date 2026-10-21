@@ -1,0 +1,92 @@
+{
+  "goal": "Open the UCLA Schedule of Classes results for a subject and course number, and report the course's seat status, waitlist and instructor.",
+  "steps": [],
+  "outputs": {
+    "course": {
+      "field": "course_title",
+      "read": "text"
+    },
+    "status": {
+      "field": "class_status",
+      "read": "text"
+    },
+    "waitlist_status": {
+      "field": "class_waitlist",
+      "read": "text"
+    },
+    "instructor": {
+      "field": "class_instructor",
+      "read": "text"
+    }
+  },
+  "params_schema": {
+    "type": "object",
+    "required": [
+      "subject",
+      "course_number",
+      "term"
+    ],
+    "additionalProperties": false,
+    "properties": {
+      "subject": {
+        "type": "string",
+        "pattern": "^[A-Za-z &]{1,20}$",
+        "description": "subject area code as the registrar spells it, e.g. COM SCI"
+      },
+      "course_number": {
+        "type": "string",
+        "pattern": "^[Cc]?[Mm]?[0-9]{1,4}[A-Za-z]{0,2}$",
+        "description": "catalog number, e.g. 32, 35L, M51A or C121"
+      },
+      "term": {
+        "type": "string",
+        "pattern": "^[0-9]{2}[FWS12]$",
+        "description": "registrar term code, e.g. 26F for Fall 2026"
+      }
+    }
+  },
+  "output_schema": {
+    "type": "object",
+    "required": [
+      "course",
+      "status",
+      "waitlist_status",
+      "instructor"
+    ],
+    "additionalProperties": false,
+    "properties": {
+      "course": {
+        "type": "string",
+        "description": "course number and title"
+      },
+      "status": {
+        "type": "string",
+        "description": "the first lecture's status and enrollment as the registrar prints it"
+      },
+      "waitlist_status": {
+        "type": "string"
+      },
+      "instructor": {
+        "type": "string"
+      }
+    }
+  },
+  "canary": {
+    "params": {
+      "subject": "COM SCI",
+      "course_number": "35L",
+      "term": "26F"
+    },
+    "expected_output": {
+      "course": "35L - Software Construction",
+      "status": "live seat data, not compared",
+      "waitlist_status": "live seat data, not compared",
+      "instructor": "live seat data, not compared"
+    },
+    "ignore_paths": [
+      "/status",
+      "/waitlist_status",
+      "/instructor"
+    ]
+  }
+}

@@ -5,6 +5,7 @@ const SITE_NAMES: Record<string, string> = {
   "python-latest-release": "Python releases",
   "books-travel-first-book": "Books",
   "quotes-love-first-quote": "Quotes",
+  "ucla-class-status": "UCLA classes",
 };
 
 /** True for a workflow created from a sentence. */
@@ -21,6 +22,9 @@ export function publicSite(id: string): PublicSite | undefined {
   return undefined;
 }
 
+/** True when the dashboard shows editable input boxes for the workflow: the public sites, and the UCLA registrar (which is not creatable from a sentence). */
+export const hasTypedInput = (id: string): boolean => publicSite(id) !== undefined || id === "ucla-class-status";
+
 /** The page title: a created workflow shows its whole goal (the picker button shortens it). */
 export function workflowTitle(id: string, goal?: string): string {
   return isCreated(id) && goal ? goal.replace(/\.$/, "") : workflowLabel(id, goal);
@@ -35,7 +39,12 @@ export function workflowLabel(id: string, goal?: string): string {
   return spaced.charAt(0).toUpperCase() + spaced.slice(1);
 }
 
-const PARAM_LABELS: Record<string, string> = { "wikipedia-article:title": "Article title" };
+const PARAM_LABELS: Record<string, string> = {
+  "wikipedia-article:title": "Article title",
+  "ucla-class-status:subject": "Subject area (e.g. COM SCI, MATH, ENGL)",
+  "ucla-class-status:course_number": "Course number (e.g. 32, 35L, M51A, C121)",
+  "ucla-class-status:term": "Term code (26F is Fall 2026, 26W Winter 2026, 27S Spring 2027)",
+};
 
 /** What a person calls a parameter: a known label, else the parameter name capitalised. */
 export function paramLabel(id: string, name: string): string {
@@ -50,6 +59,7 @@ const SITE_HINTS: Record<string, string> = {
   "python-latest-release": "Reads the latest release",
   "books-travel-first-book": "Reads the first Travel book",
   "quotes-love-first-quote": "Reads the first love quote",
+  "ucla-class-status": "Reads a course's seats and waitlist",
 };
 
 /** A few words on what running this workflow does. Unknown ids have none, so they get no tooltip. */

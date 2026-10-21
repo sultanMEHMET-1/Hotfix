@@ -1,12 +1,12 @@
 {
   "workflow_id": "record-update",
   "target_url": "http://127.0.0.1:3100/records",
-  "version": 1,
+  "version": 30,
   "fields": {
-    "input_record_id": "#record-id",
+    "input_record_id": "input[id=\"record-id\"]",
     "input_value": "#record-value",
-    "save_button": "#save-btn",
+    "save_button": "button[id=\"save-btn\"]",
     "saved_record": "[data-testid='saved-record']",
-    "saved_value": "[data-testid='saved-value']"
+    "saved_value": "span[data-testid=\"saved-value\"]"
   }
 }

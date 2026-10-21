@@ -90,7 +90,7 @@ export default function CreateWorkflow({ site, onSiteChange, onKept }: CreateWor
     <section aria-labelledby="create-title" className="mt-12">
       <h2 id="create-title" className="text-xl">Create a workflow from a sentence</h2>
       <p className="mt-2 max-w-[62ch] text-base text-ink-muted">
-        Pick a site and describe what to read. Mender builds the workflow, tests it twice on the real site, and shows you what it made. Nothing runs until you save it.
+        Pick a site and describe what to read. Hotfix builds the workflow, tests it twice on the real site, and shows you what it made. Nothing runs until you save it.
       </p>
       <div className="mt-5 flex flex-col sm:flex-row" role="group" aria-label="Site">
         {(Object.keys(SITE_NAME) as PublicSite[]).map((s) => (
